@@ -4,10 +4,7 @@
             "jwt_key": "43e65a8d49b56c5d12dd95d0241a09676839ed5080c790bc5883b365ea905f96bf20b98a39b7cf1c9fb6288e45a865877dd1dec2d44c9e526f56a5efcbd4c5f6f0b9084e682570f776e3d2c5365c95fad7f3664f0e8195595c53e4ef5172b2aba7f95d47312018b780175ad7e58729c71df7ebac26c0e3d29a800b634d5fa09cc804e3b90d5521b97c49a5ffab0b55f13e473d2fac06",
             "access_expires": 600,
             "refresh_expires": 1200,
-            "path_log": "/var/log/slm/app.log",
-            "max_bytes": 10485700,
-            "count_log_files": 5,
-            "log_level": "DEBUG",
+            "address": "192.168.0.5",
             "port": 9443
     },
     "db": {
