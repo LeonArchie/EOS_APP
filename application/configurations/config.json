@@ -8,14 +8,22 @@
             "port": 9443
     },
     "db": {
-        "replication": "read-write", 
-        "master_host": "192.168.3.4",
+        "replication": "false", 
+        "master_host": "192.168.0.4",
         "master_port": 5432,
-        "replica_host": "192.168.3.5",
+        "replica_host": "",
         "replica_port": 5432,
-        "database": "RLM-PSI",
-        "user": "RLM_PSI_USER",
-        "password": "vbngrjemd#mf!"
+        "database": "EOS",
+        "user": "EOS_user",
+        "password": "vjAEWUO1FsCLAYjksgE4yAfb-ArxFI",
+        "pool_size": 5,
+        "max_overflow": 10,
+        "pool_timeout": 60,
+        "pool_recycle": 3600,
+        "pool_pre_ping": true,
+        "pool_use_lifo": true,
+        "max_retries": 5,
+        "retry_delay": 5
     },
     "LDAP": {
         "active": false,
