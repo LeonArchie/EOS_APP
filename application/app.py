@@ -1,17 +1,54 @@
-from flask import Flask
+from flask import Flask, jsonify, request
 from maintenance.logger import setup_logger
 from maintenance.read_config import config
 from maintenance.database_connector import get_db_engine
 from sqlalchemy import text
 import time
 import logging
+from api.health.health import init_health_route
+import json
+from datetime import datetime
 
 logger = setup_logger(__name__)
 
+def log_request_response(response):
+    """Логирование информации о запросе и ответе"""
+    try:
+        # Основные данные запроса
+        log_message = (
+            f"{request.method} {request.path} - {response.status_code}\n"
+            f"From: {request.remote_addr}\n"
+            f"Headers: {dict(request.headers)}\n"
+            f"Query: {dict(request.args)}"
+        )
+
+        # Добавляем тело запроса, если есть
+        if request.content_type not in ['multipart/form-data', 'application/octet-stream']:
+            try:
+                if request.data:
+                    request_body = request.get_json(silent=True) or request.data.decode('utf-8')
+                    log_message += f"\nRequest Body: {request_body}"
+            except Exception as e:
+                log_message += f"\nRequest Body Error: {str(e)}"
+
+        # Добавляем тело ответа, если это JSON или текст
+        try:
+            if response.content_type == 'application/json':
+                log_message += f"\nResponse Body: {json.loads(response.get_data(as_text=True))}"
+            elif 'text/' in response.content_type:
+                log_message += f"\nResponse Body: {response.get_data(as_text=True)}"
+        except Exception as e:
+            log_message += f"\nResponse Body Error: {str(e)}"
+
+        logger.info(log_message)
+        
+    except Exception as e:
+        logger.error(f"Failed to log request/response: {str(e)}")
+
+    return response
+
 def wait_for_database_connection():
-    """
-    Ожидание успешного подключения к базе данных с параметрами из конфига
-    """
+    """Ожидание успешного подключения к базе данных"""
     max_retries = config.get('db.max_retries', 5)
     retry_delay = config.get('db.retry_delay', 5)
     
@@ -35,20 +72,15 @@ def wait_for_database_connection():
     return False
 
 def create_app():
-    """
-    Фабрика для создания Flask-приложения с проверкой подключения к БД
-    """
+    """Фабрика для создания Flask-приложения"""
     logger.info("Создание Flask-приложения")
     
     try:
-        # Проверка подключения к БД перед инициализацией приложения
         if not wait_for_database_connection():
             raise RuntimeError("Не удалось подключиться к базе данных")
 
-        # Инициализация приложения
         app = Flask(__name__)
         
-        # Загрузка конфигурации
         app_config = {
             'SECRET_KEY': config.get('app.flask_key', 'default-secret-key'),
             'VERSION': config.get('version', '0.0.0'),
@@ -58,26 +90,36 @@ def create_app():
         
         app.config.update(app_config)
         
-        logger.info("Конфигурация приложения успешно загружена")
+        # Добавляем обработчики для логирования запросов/ответов
+        @app.before_request
+        def log_request_info():
+            logger.info(
+                f"Incoming request: {request.method} {request.path}\n"
+                f"From: {request.remote_addr}\n"
+                f"Headers: {dict(request.headers)}\n"
+                f"Query: {dict(request.args)}"
+            )
         
-        @app.route('/')
-        def index():
-            logger.debug("Обработка запроса к корневому URL")
-            try:
-                engine = get_db_engine()
-                with engine.connect() as conn:
-                    result = conn.execute(text("SELECT 1"))
-                    db_status = "База данных доступна" if result else "Ошибка БД"
-                
-                return (
-                    f"Приложение версии {app.config['VERSION']}<br>"
-                    f"Работает на порту {config.get('app.port', 5000)}<br>"
-                    f"Статус БД: {db_status}<br>"
-                    f"Параметры подключения: {config.get('db.max_retries')} попыток, задержка {config.get('db.retry_delay')}с"
-                )
-            except Exception as e:
-                logger.error(f"Ошибка при проверке БД: {str(e)}")
-                return "Ошибка подключения к базе данных", 500
+        @app.after_request
+        def after_request(response):
+            log_request_response(response)
+            return response
+        
+        # Инициализация health check роута
+        init_health_route(app)
+        
+        # Обработка 404 ошибки
+        @app.errorhandler(404)
+        def not_found(error):
+            response = jsonify({
+                "status": False,
+                "code": 404,
+                "body": {
+                    "message": "Not Found"
+                }
+            })
+            response.status_code = 404
+            return response
         
         logger.info("Flask-приложение успешно создано")
         return app
