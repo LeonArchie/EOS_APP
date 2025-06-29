@@ -1,0 +1,14 @@
+{
+    "readonly_fields": [
+        "app.flask_key",
+        "app.jwt_key",
+        "db.replication",
+        "db.master_host",
+        "db.master_port",
+        "db.replica_host",
+        "db.replica_port",
+        "database",
+        "db.user",
+        "db.password"
+    ]
+}
