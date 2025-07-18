@@ -3,9 +3,9 @@
 
 from flask import Blueprint, request, jsonify
 from api.jwt.jwt_service import JWTService
+from api.auth.auth_local_service import AuthService
 from maintenance.logger import setup_logger
 import hashlib
-from datetime import datetime, timedelta
 
 logger = setup_logger(__name__)
 
@@ -15,23 +15,14 @@ local_auth_bp = Blueprint('local_auth', __name__)
 def local_auth():
     """
     Обработчик аутентификации пользователя через локальную БД.
+    Безопасное логирование - конфиденциальные данные только в debug режиме.
     """
     try:
-        logger.info("Начало процесса локальной аутентификации")
-        logger.debug(f"Получен запрос с заголовками: {request.headers}")
+        logger.info("Начало процесса аутентификации")
         
-        # Логирование тела запроса (без пароля)
         data = request.get_json()
-        if data:
-            logged_data = data.copy()
-            if 'auth' in logged_data and 'password' in logged_data['auth']:
-                logged_data['auth']['password'] = '***FILTERED***'
-            logger.debug(f"Тело запроса (фильтрованное): {logged_data}")
-        else:
-            logger.warning("Получен запрос с пустым телом")
-
         if not data:
-            logger.error("Получены пустые данные запроса")
+            logger.warning("Пустой запрос")
             return jsonify({
                 "code": 400,
                 "status": False,
@@ -40,7 +31,7 @@ def local_auth():
 
         auth_data = data.get('auth')
         if not auth_data:
-            logger.error("Отсутствует блок 'auth' в запросе. Полученные данные: %s", data)
+            logger.error("Отсутствует блок аутентификации")
             return jsonify({
                 "code": 400,
                 "status": False,
@@ -50,81 +41,77 @@ def local_auth():
         login = auth_data.get('login')
         password_hash = auth_data.get('password')
         
+        # Только общие сообщения в info
+        logger.info(f"Аутентификация пользователя (логин: {login})")
+        
+        # Детали только для debug
+        logger.debug(f"Полные данные запроса: {data}")
+        logger.debug(f"Заголовки: {dict(request.headers)}")
+
         if not login:
-            logger.error("Не указан логин в запросе")
+            logger.error("Не указан логин")
             return jsonify({
                 "code": 400,
                 "status": False,
-                "body": {"message": "Логин обязателен для заполнения"}
+                "body": {"message": "Логин обязателен"}
             }), 400
 
         if not password_hash:
-            logger.error("Не указан пароль в запросе для пользователя: %s", login)
+            logger.error("Не указан пароль")
             return jsonify({
                 "code": 400,
                 "status": False,
-                "body": {"message": "Пароль обязателен для заполнения"}
+                "body": {"message": "Пароль обязателен"}
             }), 400
 
-        logger.info(f"Попытка аутентификации пользователя: {login}")
-        user = JWTService.get_user_by_credentials(login)
-        
+        user = AuthService.get_user_by_credentials(login)
         if not user:
-            logger.warning(f"Пользователь не найден в системе: {login}")
+            logger.warning(f"Пользователь не найден: {login}")
             return jsonify({
                 "code": 403,
                 "status": False,
                 "body": {"message": "Неверные учетные данные"}
             }), 403
 
-        logger.debug(f"Найден пользователь с ID: {user.user_id}")
+        logger.debug(f"Найден пользователь ID: {user.user_id}")
         
-        if user.password != password_hash:
-            logger.warning(f"Неверный пароль для пользователя: {login}")
+        if not AuthService.verify_password(password_hash, user.password_hash):
+            logger.warning("Неверный пароль")
             return jsonify({
                 "code": 403,
                 "status": False,
                 "body": {"message": "Неверные учетные данные"}
             }), 403
 
-        logger.info(f"Успешная аутентификация пользователя: {login} (ID: {user.user_id})")
+        logger.info(f"Успешная аутентификация (ID: {user.user_id})")
+        
         tokens = JWTService.generate_tokens(user.user_id)
-        logger.debug(f"Сгенерированы токены для пользователя ID: {user.user_id}")
-        
-        # Получаем данные для сессии
-        user_agent = request.headers.get('User-Agent', '')
-        ip_address = request.remote_addr or ''
-        
-        # Создаем хеш refresh токена для хранения в БД
+        logger.debug("Токены сгенерированы")
+
+        # Создание сессии
         refresh_token_hash = hashlib.sha256(tokens['refresh_token'].encode()).hexdigest()
-        
-        # Создаем сессию с дополнительными данными
         JWTService.create_session(
             user_id=user.user_id,
             access_token=tokens['access_token'],
             refresh_token=tokens['refresh_token'],
             refresh_token_hash=refresh_token_hash,
-            user_agent=user_agent,
-            ip_address=ip_address
+            user_agent=request.headers.get('User-Agent', ''),
+            ip_address=request.remote_addr or ''
         )
-        logger.info(f"Сессия создана для пользователя ID: {user.user_id}")
 
-        response_data = {
+        return jsonify({
             "code": 200,
             "status": True,
             "body": {
-                "access_token": tokens['access_token'][:10] + "...",  # Логируем только часть токена
-                "refresh_token": tokens['refresh_token'][:10] + "...",
+                "access_token": tokens['access_token'],
+                "refresh_token": tokens['refresh_token'],
                 "user_id": user.user_id,
                 "expires_in": tokens['expires_in']
             }
-        }
-        logger.debug(f"Формирование ответа: {response_data}")
-        
-        return jsonify(response_data), 200
+        }), 200
 
     except Exception as e:
-        logger.critical(f"Критическая ошибка при аутентификации: {str(e)}", exc_info=True)
+        logger.critical(f"Ошибка аутентификации: {type(e).__name__}", exc_info=True)
         return jsonify({
             "code": 500,
             "status": False,

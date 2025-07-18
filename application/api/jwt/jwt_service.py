@@ -33,10 +33,13 @@ class JWTService:
             
             start_time = time.perf_counter()
             
+            # Преобразование user_id в строку, если это UUID
+            user_id_str = str(user_id)
+            
             # Подготовка payload для access токена
             access_exp = datetime.utcnow() + timedelta(seconds=cls._access_expires)
             access_payload = {
-                'user_id': user_id,
+                'user_id': user_id_str,  # Используем строковое представление
                 'exp': access_exp,
                 'type': 'access'
             }
@@ -50,7 +53,7 @@ class JWTService:
             # Подготовка payload для refresh токена
             refresh_exp = datetime.utcnow() + timedelta(seconds=cls._refresh_expires)
             refresh_payload = {
-                'user_id': user_id,
+                'user_id': user_id_str,  # Используем строковое представление
                 'exp': refresh_exp,
                 'type': 'refresh'
             }
@@ -80,7 +83,7 @@ class JWTService:
             raise
 
     @classmethod
-    def create_session(cls, user_id, access_token, refresh_token, user_agent, ip_address):
+    def create_session(cls, user_id, access_token, refresh_token, refresh_token_hash, user_agent, ip_address):
         """
         Создание сессии пользователя в БД с максимально подробным логированием.
         """
@@ -89,15 +92,12 @@ class JWTService:
             logger.debug(f"[Session Creation] Параметры: user_agent='{user_agent}', ip={ip_address}")
             logger.debug(f"[Session Creation] Access Token (first 10 chars): {access_token[:10]}...")
             logger.debug(f"[Session Creation] Refresh Token (first 10 chars): {refresh_token[:10]}...")
+            logger.debug(f"[Session Creation] Refresh Token Hash: {refresh_token_hash}")
             
             start_time = time.perf_counter()
             
             # Проверка и очистка старых сессий
             cls._remove_old_sessions_if_needed(user_id)
-            
-            # Хеширование refresh токена
-            refresh_token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
-            logger.debug(f"[Session Creation] Refresh Token Hash: {refresh_token_hash}")
             
             with get_db_session() as session:
                 logger.debug("[Session Creation] Установлено соединение с БД")
@@ -196,38 +196,4 @@ class JWTService:
                 
         except Exception as e:
             logger.error(f"[Session Cleanup] Ошибка очистки сессий: {str(e)}", exc_info=True)
-            raise
-
-    @classmethod
-    def get_user_by_credentials(cls, login):
-        """
-        Поиск пользователя по логину с детальным логированием.
-        """
-        try:
-            logger.info(f"[User Auth] Поиск пользователя по логину: '{login}'")
-            start_time = time.perf_counter()
-            
-            with get_db_session() as session:
-                logger.debug("[User Auth] Установлено соединение с БД")
-                
-                # Выполнение запроса
-                user = session.execute(
-                    text("SELECT user_id, password FROM users WHERE userlogin = :login"),
-                    {'login': login}
-                ).fetchone()
-                
-                # Расчет времени выполнения
-                query_time = time.perf_counter() - start_time
-                
-                if user:
-                    logger.info(f"[User Auth] Пользователь найден: ID={user.user_id}")
-                    logger.debug(f"[User Auth] Время выполнения запроса: {query_time:.4f} секунд")
-                else:
-                    logger.warning(f"[User Auth] Пользователь с логином '{login}' не найден")
-                    logger.debug(f"[User Auth] Время выполнения запроса: {query_time:.4f} секунд")
-                
-                return user
-                
-        except Exception as e:
-            logger.error(f"[User Auth] Ошибка поиска пользователя: {str(e)}", exc_info=True)
             raise
