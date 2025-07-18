@@ -1,89 +1,79 @@
+# SPDX-License-Identifier: AGPL-3.0-only WITH LICENSE-ADDITIONAL
+# Copyright (C) 2025 Петунин Лев Михайлович
+
 from flask import Flask
 from maintenance.logger import setup_logger
+from maintenance.database_utils import wait_for_database_connection
+from maintenance.request_logging import log_request_info, log_request_response
+from maintenance.app_config import get_app_config
+from api.error_handlers import not_found
+from api.health.health import health_bp
 from maintenance.read_config import config
-from maintenance.database_connector import get_db_engine
-from sqlalchemy import text
-import time
-import logging
+from api.auth.local_auth import local_auth_bp
+from maintenance.request_validator import RequestValidator
+from maintenance.migration import run_migrations, MigrationError
 
+# Инициализация логгера
 logger = setup_logger(__name__)
-
-def wait_for_database_connection():
-    """
-    Ожидание успешного подключения к базе данных с параметрами из конфига
-    """
-    max_retries = config.get('db.max_retries', 5)
-    retry_delay = config.get('db.retry_delay', 5)
-    
-    retry_count = 0
-    while retry_count < max_retries:
-        try:
-            logger.info(f"Попытка подключения к базе данных ({retry_count + 1}/{max_retries})")
-            engine = get_db_engine()
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            logger.info("Подключение к базе данных успешно установлено")
-            return True
-        except Exception as e:
-            logger.error(f"Ошибка подключения к базе данных: {str(e)}")
-            retry_count += 1
-            if retry_count < max_retries:
-                logger.info(f"Повторная попытка через {retry_delay} секунд...")
-                time.sleep(retry_delay)
-    
-    logger.critical(f"Не удалось установить подключение к базе данных после {max_retries} попыток")
-    return False
 
 def create_app():
     """
-    Фабрика для создания Flask-приложения с проверкой подключения к БД
+    Фабрика для создания и настройки Flask-приложения.
     """
-    logger.info("Создание Flask-приложения")
+    logger.info("Начало создания Flask-приложения")
     
     try:
-        # Проверка подключения к БД перед инициализацией приложения
-        if not wait_for_database_connection():
-            raise RuntimeError("Не удалось подключиться к базе данных")
-
-        # Инициализация приложения
         app = Flask(__name__)
-        
+        logger.debug("Экземпляр Flask создан")
+
         # Загрузка конфигурации
-        app_config = {
-            'SECRET_KEY': config.get('app.flask_key', 'default-secret-key'),
-            'VERSION': config.get('version', '0.0.0'),
-            'SQLALCHEMY_DATABASE_URI': f"postgresql://{config.get('db.user')}:{config.get('db.password')}@{config.get('db.master_host')}:{config.get('db.master_port')}/{config.get('db.database')}",
-            'SQLALCHEMY_TRACK_MODIFICATIONS': False
-        }
+        app.config.update(get_app_config())
+        logger.debug("Конфигурация приложения загружена")
+
+        # Инициализация валидатора запросов
+        validator = RequestValidator()
+        validator.init_app(app)
+        logger.info("Валидатор запросов инициализирован")
+
+        # Инициализация подключения к базе данных
+        logger.info("Инициализация подключения к базе данных")
+        from maintenance.database_connector import initialize_database
+        initialize_database()
         
-        app.config.update(app_config)
+        # Проверка подключения к БД
+        if not wait_for_database_connection():
+            logger.critical("Не удалось установить подключение к базе данных")
+            raise RuntimeError("Не удалось подключиться к базе данных")
         
-        logger.info("Конфигурация приложения успешно загружена")
-        
-        @app.route('/')
-        def index():
-            logger.debug("Обработка запроса к корневому URL")
-            try:
-                engine = get_db_engine()
-                with engine.connect() as conn:
-                    result = conn.execute(text("SELECT 1"))
-                    db_status = "База данных доступна" if result else "Ошибка БД"
-                
-                return (
-                    f"Приложение версии {app.config['VERSION']}<br>"
-                    f"Работает на порту {config.get('app.port', 5000)}<br>"
-                    f"Статус БД: {db_status}<br>"
-                    f"Параметры подключения: {config.get('db.max_retries')} попыток, задержка {config.get('db.retry_delay')}с"
-                )
-            except Exception as e:
-                logger.error(f"Ошибка при проверке БД: {str(e)}")
-                return "Ошибка подключения к базе данных", 500
-        
-        logger.info("Flask-приложение успешно создано")
+        # Выполнение миграций
+        try:
+            logger.info("Проверка и выполнение миграций БД")
+            run_migrations()
+        except MigrationError as e:
+            logger.critical(f"Ошибка выполнения миграций: {str(e)}")
+            raise RuntimeError("Не удалось выполнить миграции БД")
+
+        logger.info("Подключение к базе данных успешно установлено")
+
+        # Регистрация middleware
+        app.before_request(log_request_info)
+        app.after_request(log_request_response)
+        logger.debug("Middleware для логирования зарегистрированы")
+
+        # Регистрация обработчиков ошибок
+        app.errorhandler(404)(not_found)
+        logger.debug("Обработчики ошибок зарегистрированы")
+
+        # Регистрация blueprint'ов
+        app.register_blueprint(health_bp)
+        app.register_blueprint(local_auth_bp)
+        logger.info("Blueprint'ы успешно зарегистрированы")
+
+        logger.info("Flask-приложение успешно создано и настроено")
         return app
         
     except Exception as e:
-        logger.critical(f"ОШИБКА СОЗДАНИЯ ПРИЛОЖЕНИЯ: {str(e)}")
+        logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА ПРИ СОЗДАНИИ ПРИЛОЖЕНИЯ: {str(e)}", exc_info=True)
         raise
 
 # Создание экземпляра приложения
@@ -92,16 +82,14 @@ try:
     app = create_app()
     logger.info("Приложение готово к работе")
 except Exception as e:
-    logger.critical(f"НЕУДАЛОСЬ ЗАПУСТИТЬ ПРИЛОЖЕНИЕ: {str(e)}")
-    raise
+    logger.critical(f"НЕУДАЛОСЬ ЗАПУСТИТЬ ПРИЛОЖЕНИЕ: {str(e)}", exc_info=True)
+    raise   
 
-if __name__ == '__main__':
-    host = config.get('app.address', '0.0.0.0')
-    port = config.get('app.port', 5000)
-    logger.info(f"Запуск сервера разработки на {host}:{port}")
-    try:
-        app.run(host=host, port=port)
-        logger.info("Сервер разработки успешно запущен")
-    except Exception as e:
-        logger.critical(f"ОШИБКА ЗАПУСКА СЕРВЕРА: {str(e)}")
-        raise
+if __name__ == "__main__":
+    logger.info(f"Запуск сервера на {config.get('app.address', '0.0.0.0')}:{config.get('app.port', 9443)}")
+    app.run(
+        host=config.get('app.address', '0.0.0.0'), 
+        port=config.get('app.port', 9443),
+        debug=config.get('app.debug', False)
+    )
+    logger.info("Сервер остановлен")
