@@ -4,6 +4,8 @@
 from flask import Blueprint, request, jsonify
 from api.jwt.jwt_service import JWTService
 from maintenance.logger import setup_logger
+import hashlib
+from datetime import datetime, timedelta
 
 logger = setup_logger(__name__)
 
@@ -89,7 +91,22 @@ def local_auth():
         tokens = JWTService.generate_tokens(user.user_id)
         logger.debug(f"Сгенерированы токены для пользователя ID: {user.user_id}")
         
-        JWTService.create_session(user.user_id, tokens['access_token'], tokens['refresh_token'])
+        # Получаем данные для сессии
+        user_agent = request.headers.get('User-Agent', '')
+        ip_address = request.remote_addr or ''
+        
+        # Создаем хеш refresh токена для хранения в БД
+        refresh_token_hash = hashlib.sha256(tokens['refresh_token'].encode()).hexdigest()
+        
+        # Создаем сессию с дополнительными данными
+        JWTService.create_session(
+            user_id=user.user_id,
+            access_token=tokens['access_token'],
+            refresh_token=tokens['refresh_token'],
+            refresh_token_hash=refresh_token_hash,
+            user_agent=user_agent,
+            ip_address=ip_address
+        )
         logger.info(f"Сессия создана для пользователя ID: {user.user_id}")
 
         response_data = {

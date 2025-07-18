@@ -11,6 +11,7 @@ from api.health.health import health_bp
 from maintenance.read_config import config
 from api.auth.local_auth import local_auth_bp
 from maintenance.request_validator import RequestValidator
+from maintenance.migration import run_migrations, MigrationError
 
 # Инициализация логгера
 logger = setup_logger(__name__)
@@ -18,24 +19,18 @@ logger = setup_logger(__name__)
 def create_app():
     """
     Фабрика для создания и настройки Flask-приложения.
-    Выполняет:
-    - Инициализацию конфигурации
-    - Настройку валидации запросов
-    - Подключение к базе данных
-    - Регистрацию обработчиков и middleware
     """
     logger.info("Начало создания Flask-приложения")
     
     try:
-        # Создание экземпляра приложения
         app = Flask(__name__)
         logger.debug("Экземпляр Flask создан")
 
-        # Загрузка конфигурации приложения
+        # Загрузка конфигурации
         app.config.update(get_app_config())
         logger.debug("Конфигурация приложения загружена")
 
-        # Инициализация глобального валидатора запросов
+        # Инициализация валидатора запросов
         validator = RequestValidator()
         validator.init_app(app)
         logger.info("Валидатор запросов инициализирован")
@@ -49,9 +44,18 @@ def create_app():
         if not wait_for_database_connection():
             logger.critical("Не удалось установить подключение к базе данных")
             raise RuntimeError("Не удалось подключиться к базе данных")
+        
+        # Выполнение миграций
+        try:
+            logger.info("Проверка и выполнение миграций БД")
+            run_migrations()
+        except MigrationError as e:
+            logger.critical(f"Ошибка выполнения миграций: {str(e)}")
+            raise RuntimeError("Не удалось выполнить миграции БД")
+
         logger.info("Подключение к базе данных успешно установлено")
 
-        # Регистрация middleware для логирования
+        # Регистрация middleware
         app.before_request(log_request_info)
         app.after_request(log_request_response)
         logger.debug("Middleware для логирования зарегистрированы")
@@ -82,7 +86,6 @@ except Exception as e:
     raise   
 
 if __name__ == "__main__":
-    # Запуск сервера разработки
     logger.info(f"Запуск сервера на {config.get('app.address', '0.0.0.0')}:{config.get('app.port', 9443)}")
     app.run(
         host=config.get('app.address', '0.0.0.0'), 
