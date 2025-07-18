@@ -1,7 +1,6 @@
 {
     "open_api": [
-        "health",
-        "auth-option"
+        "health"
     ]
         
 }

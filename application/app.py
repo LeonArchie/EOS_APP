@@ -8,6 +8,7 @@ from maintenance.request_logging import log_request_info, log_request_response
 from maintenance.app_config import get_app_config
 from api.error_handlers import not_found
 from api.health.health import health_bp
+from maintenance.read_config import config
 
 logger = setup_logger(__name__)
 
@@ -47,3 +48,9 @@ try:
 except Exception as e:
     logger.critical(f"НЕУДАЛОСЬ ЗАПУСТИТЬ ПРИЛОЖЕНИЕ: {str(e)}", exc_info=True)
     raise   
+
+if __name__ == "__main__":
+    app.run(host=config.get('app.address', '0.0.0.0'), 
+            port=config.get('app.port', 9443),
+            debug=False)
+    logger.info("Сервер запущен")
