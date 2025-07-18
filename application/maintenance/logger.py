@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only WITH LICENSE-ADDITIONAL
+# Copyright (C) 2025 Петунин Лев Михайлович
+
 import logging
 import sys
 
@@ -5,7 +8,7 @@ import sys
 #           НАСТРОЙКИ ЛОГИРОВАНИЯ
 # =============================================
 
-LOG_LEVEL = logging.INFO
+LOG_LEVEL = logging.DEBUG
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
