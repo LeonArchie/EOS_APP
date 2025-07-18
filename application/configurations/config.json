@@ -6,7 +6,8 @@
             "refresh_expires": 1200,
             "count_session": 5,
             "address": "192.168.0.5",
-            "port": 9443
+            "port": 9443,
+            "debug": true
     },
     "auth": {
         "local": {
@@ -47,5 +48,5 @@
         "username": "",
         "password": ""
     },
-    "version" : "0.8.0"
+    "version" : "0.8.1"
 }

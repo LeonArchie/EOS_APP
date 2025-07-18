@@ -1,6 +1,17 @@
 {
     "open_api": [
-        "health"
-    ]
+        "/health",
+        "/auth/local/"
+    ],
+    "health":[],
+    "/auth/local": {
+        "auth": {
+            "login": "^[a-zA-Z0-9._-]{1,20}$",
+            "password": "^[^\n]{0,50}$",
+            "method": "^(LOCAL|LDAP)$"
+    }
+
+    }
+
         
 }

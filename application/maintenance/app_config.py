@@ -2,12 +2,26 @@
 # Copyright (C) 2025 Петунин Лев Михайлович
 
 from maintenance.read_config import config
+from maintenance.database_connector import get_db_connection_string
+from maintenance.logger import setup_logger
+
+# Инициализация логгера
+logger = setup_logger(__name__)
 
 def get_app_config():
-    """Возвращает конфигурацию Flask-приложения"""
+    """
+    Получение конфигурации Flask-приложения
+    :return: Словарь с настройками приложения:
+        - SECRET_KEY: Ключ для подписи сессий
+        - VERSION: Версия приложения
+        - SQLALCHEMY_DATABASE_URI: Строка подключения к БД
+        - SQLALCHEMY_TRACK_MODIFICATIONS: Флаг отслеживания изменений
+    """
+    logger.debug("Получение конфигурации приложения")
     return {
         'SECRET_KEY': config.get('app.flask_key', 'default-secret-key'),
         'VERSION': config.get('version', '0.0.0'),
-        'SQLALCHEMY_DATABASE_URI': f"postgresql://{config.get('db.user')}:{config.get('db.password')}@{config.get('db.master_host')}:{config.get('db.master_port')}/{config.get('db.database')}",
-        'SQLALCHEMY_TRACK_MODIFICATIONS': False
+        'SQLALCHEMY_DATABASE_URI': get_db_connection_string(),
+        'SQLALCHEMY_TRACK_MODIFICATIONS': False,
+        'DEBUG': config.get('app.debug', False)
     }

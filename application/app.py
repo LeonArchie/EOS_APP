@@ -9,35 +9,67 @@ from maintenance.app_config import get_app_config
 from api.error_handlers import not_found
 from api.health.health import health_bp
 from maintenance.read_config import config
+from api.auth.local_auth import local_auth_bp
+from maintenance.request_validator import RequestValidator
 
+# Инициализация логгера
 logger = setup_logger(__name__)
 
 def create_app():
-    """Фабрика для создания Flask-приложения"""
-    logger.info("Создание Flask-приложения")
+    """
+    Фабрика для создания и настройки Flask-приложения.
+    Выполняет:
+    - Инициализацию конфигурации
+    - Настройку валидации запросов
+    - Подключение к базе данных
+    - Регистрацию обработчиков и middleware
+    """
+    logger.info("Начало создания Flask-приложения")
     
     try:
+        # Создание экземпляра приложения
         app = Flask(__name__)
+        logger.debug("Экземпляр Flask создан")
+
+        # Загрузка конфигурации приложения
         app.config.update(get_app_config())
-        
-        # Инициализация БД после создания приложения
+        logger.debug("Конфигурация приложения загружена")
+
+        # Инициализация глобального валидатора запросов
+        validator = RequestValidator()
+        validator.init_app(app)
+        logger.info("Валидатор запросов инициализирован")
+
+        # Инициализация подключения к базе данных
+        logger.info("Инициализация подключения к базе данных")
         from maintenance.database_connector import initialize_database
         initialize_database()
         
-        # Проверка подключения
+        # Проверка подключения к БД
         if not wait_for_database_connection():
+            logger.critical("Не удалось установить подключение к базе данных")
             raise RuntimeError("Не удалось подключиться к базе данных")
-        
+        logger.info("Подключение к базе данных успешно установлено")
+
+        # Регистрация middleware для логирования
         app.before_request(log_request_info)
         app.after_request(log_request_response)
-        app.register_blueprint(health_bp)
+        logger.debug("Middleware для логирования зарегистрированы")
+
+        # Регистрация обработчиков ошибок
         app.errorhandler(404)(not_found)
-        
-        logger.info("Flask-приложение успешно создано")
+        logger.debug("Обработчики ошибок зарегистрированы")
+
+        # Регистрация blueprint'ов
+        app.register_blueprint(health_bp)
+        app.register_blueprint(local_auth_bp)
+        logger.info("Blueprint'ы успешно зарегистрированы")
+
+        logger.info("Flask-приложение успешно создано и настроено")
         return app
         
     except Exception as e:
-        logger.critical(f"ОШИБКА СОЗДАНИЯ ПРИЛОЖЕНИЯ: {str(e)}", exc_info=True)
+        logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА ПРИ СОЗДАНИИ ПРИЛОЖЕНИЯ: {str(e)}", exc_info=True)
         raise
 
 # Создание экземпляра приложения
@@ -50,7 +82,11 @@ except Exception as e:
     raise   
 
 if __name__ == "__main__":
-    app.run(host=config.get('app.address', '0.0.0.0'), 
-            port=config.get('app.port', 9443),
-            debug=False)
-    logger.info("Сервер запущен")
+    # Запуск сервера разработки
+    logger.info(f"Запуск сервера на {config.get('app.address', '0.0.0.0')}:{config.get('app.port', 9443)}")
+    app.run(
+        host=config.get('app.address', '0.0.0.0'), 
+        port=config.get('app.port', 9443),
+        debug=config.get('app.debug', False)
+    )
+    logger.info("Сервер остановлен")
