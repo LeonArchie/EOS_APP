@@ -7,6 +7,7 @@ from api.auth.auth_local_service import AuthService
 from maintenance.logger import setup_logger
 import hashlib
 import json
+import uuid
 
 logger = setup_logger(__name__)
 
@@ -124,13 +125,13 @@ def local_auth():
             "body": {
                 "access_token": tokens['access_token'],
                 "refresh_token": tokens['refresh_token'],
-                "session_id": session_id,
-                "user_id": user.user_id,
+                "session_id": str(session_id),  # Явное преобразование UUID в строку
+                "user_id": str(user.user_id),   # На всякий случай преобразуем и user_id
                 "expires_in": tokens['expires_in']
             }
         }
-        
-        logger.debug(f"[Response] Формирование ответа: {json.dumps(response_data, ensure_ascii=False)}")
+
+        logger.debug(f"[Response] Формирование ответа: {json.dumps(response_data, default=str, ensure_ascii=False)}")
         return jsonify(response_data), 200
 
     except Exception as e:
