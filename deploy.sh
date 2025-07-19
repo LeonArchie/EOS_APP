@@ -127,8 +127,8 @@ WorkingDirectory=$APP_DIR
 Environment="PATH=/usr/local/bin:/usr/bin:/bin"
 ExecStart=/usr/bin/python3 $APP_DIR/app.py
 Restart=always
-StandardOutput=file:$LOG_DIR/app.log
-StandardError=file:$LOG_DIR/error.log
+StandardOutput=append:$LOG_DIR/app.log
+StandardError=append:$LOG_DIR/app.log
 
 [Install]
 WantedBy=multi-user.target

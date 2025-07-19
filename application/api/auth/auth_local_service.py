@@ -21,32 +21,58 @@ class AuthService:
         Возвращает пользователя с полями user_id и password_hash.
         """
         try:
-            logger.info(f"[User Auth] Поиск пользователя по логину: '{login}'")
+            # Логирование начала операции
+            logger.info(f"[DB Query Init] Запрос пользователя по логину. Login: '{login}'")
             start_time = time.perf_counter()
+            db_conn_time = None
             
             with get_db_session() as session:
-                logger.debug("[User Auth] Установлено соединение с БД")
+                # Логирование успешного подключения к БД
+                db_conn_time = time.perf_counter() - start_time
+                logger.debug(f"[DB Connection] Установлено соединение с БД. Время подключения: {db_conn_time:.4f} сек")
                 
-                # Выполнение запроса с использованием password_hash вместо password
+                # Подготовка и выполнение SQL запроса
+                sql_query = "SELECT user_id, password_hash FROM users WHERE userlogin = :login"
+                logger.debug(f"[SQL Execute] Выполнение запроса: {sql_query} с параметрами: login='{login}'")
+                
+                query_start = time.perf_counter()
                 user = session.execute(
-                    text("SELECT user_id, password_hash FROM users WHERE userlogin = :login"),
+                    text(sql_query),
                     {'login': login}
                 ).fetchone()
                 
-                # Расчет времени выполнения
-                query_time = time.perf_counter() - start_time
+                # Расчет времени выполнения запроса
+                query_exec_time = time.perf_counter() - query_start
+                total_time = time.perf_counter() - start_time
                 
                 if user:
-                    logger.info(f"[User Auth] Пользователь найден: ID={user.user_id}")
-                    logger.debug(f"[User Auth] Время выполнения запроса: {query_time:.4f} секунд")
+                    # Логирование успешного нахождения пользователя
+                    logger.info(
+                        f"[User Found] Пользователь найден. "
+                        f"ID: {user.user_id}, "
+                        f"Query Time: {query_exec_time:.4f} сек, "
+                        f"Total Time: {total_time:.4f} сек"
+                    )
+                    logger.debug(f"[User Details] UserID: {user.user_id}, PasswordHash: [REDACTED]")
                 else:
-                    logger.warning(f"[User Auth] Пользователь с логином '{login}' не найден")
-                    logger.debug(f"[User Auth] Время выполнения запроса: {query_time:.4f} секунд")
+                    # Логирование отсутствия пользователя
+                    logger.warning(
+                        f"[User Not Found] Пользователь с логином '{login}' не найден. "
+                        f"Query Time: {query_exec_time:.4f} сек, "
+                        f"Total Time: {total_time:.4f} сек"
+                    )
                 
                 return user
                 
         except Exception as e:
-            logger.error(f"[User Auth] Ошибка поиска пользователя: {str(e)}", exc_info=True)
+            # Логирование ошибок с дополнительной информацией
+            error_time = time.perf_counter() - start_time if 'start_time' in locals() else 0
+            logger.critical(
+                f"[DB Query Failed] Ошибка поиска пользователя '{login}'. "
+                f"Error: {type(e).__name__}: {str(e)}, "
+                f"Time Elapsed: {error_time:.4f} сек",
+                exc_info=True
+            )
             raise
 
     @staticmethod
@@ -55,9 +81,36 @@ class AuthService:
         Проверка соответствия хеша введенного пароля и хеша из БД.
         """
         try:
-            logger.debug("[Password Verification] Проверка хешей паролей")
-            logger.debug(f"Сравнение хешей: input='{input_password_hash}', stored='{stored_password_hash}'")
-            return input_password_hash == stored_password_hash
+            # Логирование начала проверки пароля
+            logger.debug(
+                "[Password Verify] Начало проверки хешей паролей. "
+                f"InputHash: [REDACTED], StoredHash: [REDACTED]"
+            )
+            start_time = time.perf_counter()
+            
+            # Выполнение сравнения хешей
+            result = input_password_hash == stored_password_hash
+            
+            # Логирование результата и времени выполнения
+            exec_time = time.perf_counter() - start_time
+            if result:
+                logger.debug(
+                    f"[Password Match] Хеши паролей совпадают. "
+                    f"Время проверки: {exec_time:.6f} сек"
+                )
+            else:
+                logger.warning(
+                    f"[Password Mismatch] Хеши паролей не совпадают. "
+                    f"Время проверки: {exec_time:.6f} сек"
+                )
+            
+            return result
+            
         except Exception as e:
-            logger.error(f"[Password Verification] Ошибка проверки пароля: {str(e)}", exc_info=True)
+            # Логирование ошибок при проверке пароля
+            logger.error(
+                f"[Password Verify Error] Ошибка проверки пароля. "
+                f"Error: {type(e).__name__}: {str(e)}",
+                exc_info=True
+            )
             raise
