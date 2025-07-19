@@ -5,16 +5,39 @@ import logging
 import json
 import os
 import time
+from typing import Optional
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 from maintenance.logger import setup_logger
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 logger = setup_logger(__name__)
+
+class ConfigFileHandler(FileSystemEventHandler):
+    """Обработчик событий изменения файла конфигурации"""
+    
+    def __init__(self, config_reader: 'ConfigReader'):
+        self.config_reader = config_reader
+        super().__init__()
+    
+    def on_modified(self, event):
+        if Path(event.src_path) == self.config_reader._config_path:
+            logger.info(f"Обнаружено изменение файла конфигурации: {event.src_path}")
+            try:
+                self.config_reader.reload()
+                logger.info("Конфигурация успешно обновлена после изменения файла")
+            except Exception as e:
+                logger.error(
+                    f"Не удалось обновить конфигурацию после изменения файла: {type(e).__name__}: {str(e)}",
+                    exc_info=True
+                )
 
 class ConfigReader:
     """
     Класс для чтения конфигурации с расширенным логированием всех операций.
     Реализует singleton-паттерн для единой точки доступа к конфигурации.
+    Добавлен мониторинг изменений файла конфигурации.
     """
 
     _instance: Optional['ConfigReader'] = None
@@ -22,6 +45,7 @@ class ConfigReader:
     _config_path: Optional[Path] = None
     _initialized: bool = False
     _last_loaded: Optional[float] = None
+    _observer: Optional[Observer] = None
 
     def __new__(cls):
         """Реализация singleton-паттерна с логированием"""
@@ -31,12 +55,51 @@ class ConfigReader:
             if not cls._initialized:
                 start_time = time.time()
                 cls._init_config()
+                cls._start_file_watcher()
                 cls._initialized = True
                 load_time = (time.time() - start_time) * 1000
                 logger.info(f"ConfigReader инициализирован за {load_time:.2f} мс")
         else:
             logger.debug("Использование существующего экземпляра ConfigReader")
         return cls._instance
+
+    @classmethod
+    def _start_file_watcher(cls):
+        """Запуск мониторинга изменений файла конфигурации"""
+        if cls._config_path is None:
+            return
+            
+        try:
+            logger.info(f"Запуск мониторинга файла конфигурации: {cls._config_path}")
+            event_handler = ConfigFileHandler(cls._instance)
+            cls._observer = Observer()
+            cls._observer.schedule(
+                event_handler, 
+                path=str(cls._config_path.parent), 
+                recursive=False
+            )
+            cls._observer.start()
+            logger.debug("Мониторинг файла конфигурации успешно запущен")
+        except Exception as e:
+            logger.error(
+                f"Не удалось запустить мониторинг файла конфигурации: {type(e).__name__}: {str(e)}",
+                exc_info=True
+            )
+
+    @classmethod
+    def _stop_file_watcher(cls):
+        """Остановка мониторинга изменений файла конфигурации"""
+        if cls._observer is not None:
+            try:
+                logger.info("Остановка мониторинга файла конфигурации")
+                cls._observer.stop()
+                cls._observer.join()
+                logger.debug("Мониторинг файла конфигурации успешно остановлен")
+            except Exception as e:
+                logger.error(
+                    f"Не удалось остановить мониторинг файла конфигурации: {type(e).__name__}: {str(e)}",
+                    exc_info=True
+                )
 
     @classmethod
     def _init_config(cls):
@@ -118,6 +181,10 @@ class ConfigReader:
                 exc_info=True
             )
             raise
+
+    def __del__(self):
+        """Остановка мониторинга при уничтожении экземпляра"""
+        self._stop_file_watcher()
 
     def get(self, path: str, default: Any = None) -> Any:
         """

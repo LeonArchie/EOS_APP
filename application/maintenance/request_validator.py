@@ -7,6 +7,11 @@ from flask import request, jsonify
 from pathlib import Path
 from maintenance.logger import setup_logger
 from typing import Dict, Any, Optional, Union
+from api.jwt.jwt_service import JWTService
+from maintenance.database_connector import get_db_session
+from sqlalchemy import text
+import jwt
+from datetime import datetime, timezone
 
 logger = setup_logger(__name__)
 
@@ -83,6 +88,70 @@ class RequestValidator:
             logger.critical(f"Критическая ошибка при загрузке схемы API: {type(e).__name__}: {str(e)}", exc_info=True)
             cls._schema = {'open_api': []}
 
+    def _validate_jwt_token(self, access_token: str, user_id: str) -> bool:
+        """
+        Валидация JWT токена с проверкой:
+        1. Валидности подписи
+        2. Срока действия
+        3. Принадлежности пользователю
+        4. Отсутствия в блеклисте
+        
+        Параметры:
+            access_token: JWT токен
+            user_id: Идентификатор пользователя
+            
+        Возвращает:
+            bool: True если токен валиден, False если нет
+        """
+        try:
+            logger.debug(f"Начало валидации JWT токена для user_id: {user_id}")
+            
+            # Декодируем токен без проверки срока действия (чтобы получить payload даже для просроченных токенов)
+            decoded_token = jwt.decode(
+                access_token,
+                JWTService._get_public_key_pem(),
+                algorithms=['RS256'],
+                options={'verify_exp': False}
+            )
+            logger.debug(f"Декодированный токен: {decoded_token}")
+            
+            # Проверяем принадлежность токена пользователю
+            if str(decoded_token.get('user_id')) != user_id:
+                logger.warning(f"Токен не принадлежит пользователю. Ожидался user_id={user_id}, получен {decoded_token.get('user_id')}")
+                return False
+            
+            # Проверяем срок действия токена
+            current_time = datetime.now(timezone.utc).timestamp()
+            token_exp = decoded_token.get('exp', 0)
+            
+            if current_time > token_exp:
+                logger.info("Токен просрочен, проверка блеклиста")
+                return False
+            
+            # Проверяем наличие токена в блеклисте
+            with get_db_session() as session:
+                result = session.execute(
+                    text("""
+                        SELECT 1 FROM revoked_tokens 
+                        WHERE token_hash = SHA256(:token) AND user_id = :user_id
+                    """),
+                    {'token': access_token, 'user_id': user_id}
+                ).scalar()
+                
+                if result:
+                    logger.warning("Токен находится в блеклисте")
+                    return False
+            
+            logger.info("JWT токен успешно прошел валидацию")
+            return True
+            
+        except jwt.InvalidTokenError as e:
+            logger.error(f"Невалидный токен: {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"Ошибка при валидации токена: {str(e)}", exc_info=True)
+            return False
+
     def validate_request(self) -> Optional[Any]:
         """
         Основной метод валидации с детальным логированием всех этапов
@@ -101,8 +170,36 @@ class RequestValidator:
                 logger.info(f"Эндпоинт {request.path} находится в open_api, валидация пропущена")
                 return None
                 
+            # Проверяем наличие спецификации для эндпоинта
+            if request.path not in self._schema:
+                logger.warning(f"Эндпоинт {request.path} не найден в схеме API")
+                raise RequestValidationError(
+                    "Эндпоинт не поддерживается",
+                    "invalid_endpoint"
+                )
+                
             logger.info("Начало валидации заголовков")
             self._validate_headers()
+            
+            # Дополнительная валидация JWT токена
+            access_token = request.headers.get('access-token')
+            user_id = request.headers.get('user-id')
+            
+            if access_token and user_id:
+                logger.debug("Начало валидации JWT токена")
+                if not self._validate_jwt_token(access_token, user_id):
+                    logger.warning("JWT токен не прошел валидацию")
+                    raise RequestValidationError(
+                        "Неверный или просроченный токен",
+                        "invalid_token"
+                    )
+                logger.info("JWT токен успешно прошел валидацию")
+            else:
+                logger.warning("Отсутствуют обязательные заголовки для JWT валидации")
+                raise RequestValidationError(
+                    "Неверные заголовки запроса",
+                    "invalid_headers"
+                )
             
             logger.info("Начало валидации тела запроса")
             self._validate_body_structure()
@@ -165,9 +262,12 @@ class RequestValidator:
         """Валидация тела запроса с максимальной детализацией"""
         endpoint_schema = self._schema.get(request.path)
         
-        if not endpoint_schema:
-            logger.info(f"Спецификация для {request.path} не найдена, проверка тела не требуется")
-            return
+        if endpoint_schema is None:
+            logger.warning(f"Спецификация для {request.path} не найдена. Запрос отклонен.")
+            raise RequestValidationError(
+                "Эндпоинт не поддерживается",
+                "invalid_endpoint"
+            )
 
         logger.debug(f"Найдена схема валидации для {request.path}: {json.dumps(endpoint_schema, indent=2)}")
 
@@ -255,7 +355,9 @@ class RequestValidator:
             "invalid_headers": (400, "Неверные заголовки запроса"),
             "invalid_body": (400, "Неверный запрос"),
             "invalid_json": (400, "Неверный формат данных"),
-            "server_error": (500, "Внутренняя ошибка сервера")
+            "invalid_endpoint": (404, "Эндпоинт не поддерживается"),
+            "server_error": (500, "Внутренняя ошибка сервера"),
+            "invalid_token": (401, "Неверный или просроченный токен")
         }
         
         code, message = error_types.get(error.error_type, (400, "Неверный запрос"))

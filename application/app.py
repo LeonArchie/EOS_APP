@@ -12,6 +12,7 @@ from maintenance.read_config import config
 from api.auth.local_auth import local_auth_bp
 from maintenance.request_validator import RequestValidator
 from maintenance.migration import run_migrations, MigrationError
+from api.jwt.jwt_check import jwt_check_bp
 import time
 
 # Инициализация логгера с более подробным именем
@@ -83,6 +84,7 @@ def create_app():
         logger.debug("Регистрация blueprint'ов...")
         app.register_blueprint(health_bp)
         app.register_blueprint(local_auth_bp)
+        app.register_blueprint(jwt_check_bp)
         logger.info(f"Зарегистрированы blueprint'ы: {', '.join([bp.name for bp in app.blueprints.values()])}")
 
         total_time = time.time() - start_time
