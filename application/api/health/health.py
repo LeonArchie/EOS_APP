@@ -147,13 +147,8 @@ def health_check():
             "code": 200,
             "body": {
                 "app_version": app_version,
-                "timestamp": datetime.utcnow().isoformat(),
-                "system": system_info,
-                "database": {
-                    "available": db_check["status"],
-                    "response_time_sec": round(db_check.get("response_time", 0), 3),
-                    "details": db_check.get("details", {})
-                }
+                "database": db_check["status"],
+                "timestamp": datetime.utcnow().isoformat()
             }
         }
         

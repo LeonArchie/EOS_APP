@@ -38,6 +38,26 @@ class JWTService:
         log_method(f"\n{border}\nJWT {operation.upper()}\n{details}\n{border}")
     
     @classmethod
+    def _serialize_payload_for_logging(cls, payload: Dict) -> str:
+        """Вспомогательный метод для безопасной сериализации payload JWT для логов."""
+        try:
+            # Создаем копию payload, чтобы не изменять оригинал
+            log_payload = payload.copy()
+            # Конвертируем объекты datetime в строки в формате ISO
+            for key, value in log_payload.items():
+                if isinstance(value, datetime):
+                    log_payload[key] = value.isoformat()
+            return json.dumps(log_payload, ensure_ascii=False)
+        except Exception as e:
+            cls._log_jwt_operation(
+                "Ошибка сериализации payload для логов",
+                f"Оригинальный payload: {payload}\n"
+                f"Ошибка: {type(e).__name__}: {str(e)}",
+                "error"
+            )
+            return str(payload)  # Возвращаем строковое представление в случае ошибки
+    
+    @classmethod
     def _generate_keys(cls) -> None:
         """Генерация RSA ключей с логированием."""
         if cls._private_key is None:
@@ -174,8 +194,8 @@ class JWTService:
             cls._log_jwt_operation(
                 "Кодирование токенов",
                 f"Используемый ключ: {key_info}\n"
-                f"Access payload: {json.dumps(access_payload)}\n"
-                f"Refresh payload: {json.dumps(refresh_payload)}",
+                f"Access payload: {cls._serialize_payload_for_logging(access_payload)}\n"
+                f"Refresh payload: {cls._serialize_payload_for_logging(refresh_payload)}",
                 "debug"
             )
             
