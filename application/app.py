@@ -78,8 +78,8 @@ def create_app():
 
         # 8. Регистрация blueprint'ов
         logger.debug("Регистрация blueprint'ов...")
-        app.register_blueprint(health_bp, url_prefix='/health')
-        app.register_blueprint(local_auth_bp, url_prefix='/auth')
+        app.register_blueprint(health_bp)
+        app.register_blueprint(local_auth_bp)
         logger.info(f"Зарегистрированы blueprint'ы: {', '.join([bp.name for bp in app.blueprints.values()])}")
 
         total_time = time.time() - start_time
