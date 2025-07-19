@@ -18,11 +18,12 @@ COMMENT ON COLUMN users.password_hash IS 'Хэш пароля пользоват
 COMMENT ON COLUMN users.created_at IS 'Дата и время создания учетной записи пользователя (часовой пояс UTC)';
 COMMENT ON COLUMN users.updated_at IS 'Дата и время последнего обновления информации о пользователе (часовой пояс UTC)';
 
+
 -- Создание таблицы сессий
 CREATE TABLE sessions (
-    session_id SERIAL PRIMARY KEY,
+    session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    access_token VARCHAR(500) NOT NULL,
+    access_token TEXT NOT NULL,
     refresh_token_hash VARCHAR(64) NOT NULL,
     user_agent VARCHAR(200),
     ip_address VARCHAR(45),
@@ -34,7 +35,7 @@ CREATE TABLE sessions (
 
 -- Комментарии к таблице sessions
 COMMENT ON TABLE sessions IS 'Таблица для хранения активных сессий пользователей';
-COMMENT ON COLUMN sessions.session_id IS 'Автоинкрементный идентификатор сессии';
+COMMENT ON COLUMN sessions.session_id IS 'Уникальный идентификатор сессии в формате UUID (генерируется автоматически)';
 COMMENT ON COLUMN sessions.user_id IS 'Ссылка на пользователя в таблице users (каскадное удаление при удалении пользователя)';
 COMMENT ON COLUMN sessions.access_token IS 'JWT токен доступа (максимальная длина 500 символов)';
 COMMENT ON COLUMN sessions.refresh_token_hash IS 'Хэш токена обновления (SHA-256, 64 символа)';

@@ -4,7 +4,8 @@
 import os
 import re
 import hashlib
-from typing import Dict, List
+import time
+from typing import Dict, List, Tuple, Optional
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from contextlib import contextmanager
@@ -15,111 +16,248 @@ logger = setup_logger(__name__)
 MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'migrations')
 
 class MigrationError(Exception):
-    """Класс для ошибок миграции"""
-    pass
+    """Класс для ошибок миграции с детальным логированием"""
+    def __init__(self, message: str, migration_file: Optional[str] = None):
+        self.message = message
+        self.migration_file = migration_file
+        logger.critical(
+            f"ОШИБКА МИГРАЦИИ{' (' + migration_file + ')' if migration_file else ''}: {message}",
+            exc_info=True
+        )
+        super().__init__(message)
+
+def _log_migration_step(step: str, details: str = "", level: str = "info") -> None:
+    """Унифицированное логирование шагов миграции"""
+    log_method = getattr(logger, level.lower(), logger.info)
+    border = "=" * 40
+    log_method(f"\n{border}\nМИГРАЦИЯ: {step}\n{details}\n{border}")
 
 def get_migration_files() -> List[str]:
     """
-    Получаем список файлов миграций в правильном порядке
-    :return: Отсортированный список файлов миграций
-    :raises MigrationError: Если директория с миграциями не найдена или недоступна
+    Получаем список файлов миграций в правильном порядке с детальным логированием
+    
+    Возвращает:
+        List[str]: Отсортированный список файлов миграций
+        
+    Вызывает:
+        MigrationError: Если директория с миграциями не найдена или недоступна
     """
-    if not os.path.exists(MIGRATIONS_DIR):
-        logger.error(f"Директория с миграциями не найдена: {MIGRATIONS_DIR}")
-        raise MigrationError("Директория с миграциями не найдена")
-
     try:
-        files = [f for f in os.listdir(MIGRATIONS_DIR) 
-                if re.match(r'^\d{3}-.+\.sql$', f) and os.path.isfile(os.path.join(MIGRATIONS_DIR, f))]
-        return sorted(files)
+        _log_migration_step("Поиск файлов миграций", f"Директория: {MIGRATIONS_DIR}")
+        
+        if not os.path.exists(MIGRATIONS_DIR):
+            error_msg = f"Директория с миграциями не найдена: {MIGRATIONS_DIR}"
+            _log_migration_step("Ошибка", error_msg, "error")
+            raise MigrationError(error_msg)
+
+        files = []
+        valid_files = []
+        invalid_files = []
+        
+        for f in os.listdir(MIGRATIONS_DIR):
+            full_path = os.path.join(MIGRATIONS_DIR, f)
+            if os.path.isfile(full_path):
+                files.append(f)
+                if re.match(r'^\d{3}-.+\.sql$', f):
+                    valid_files.append(f)
+                else:
+                    invalid_files.append(f)
+
+        _log_migration_step(
+            "Найдены файлы",
+            f"Всего: {len(files)}\n"
+            f"Валидных миграций: {len(valid_files)}\n"
+            f"Невалидных файлов: {len(invalid_files)}\n"
+            f"Пример невалидного: {invalid_files[0] if invalid_files else 'нет'}"
+        )
+
+        if not valid_files:
+            error_msg = f"Не найдено ни одной валидной миграции в {MIGRATIONS_DIR}"
+            _log_migration_step("Ошибка", error_msg, "error")
+            raise MigrationError(error_msg)
+
+        sorted_files = sorted(valid_files)
+        _log_migration_step(
+            "Сортировка миграций",
+            f"Первая миграция: {sorted_files[0]}\n"
+            f"Последняя миграция: {sorted_files[-1]}\n"
+            f"Всего миграций: {len(sorted_files)}"
+        )
+        
+        return sorted_files
+        
     except Exception as e:
-        logger.error(f"Ошибка чтения директории миграций: {str(e)}")
-        raise MigrationError("Ошибка чтения директории миграций")
+        error_msg = f"Ошибка чтения директории миграций: {str(e)}"
+        _log_migration_step("Критическая ошибка", error_msg, "critical")
+        raise MigrationError(error_msg) from e
 
 def check_migrations_table(session) -> None:
     """
     Проверяем наличие таблицы миграций и создаем если ее нет
-    :param session: Сессия БД
-    :raises MigrationError: При ошибках создания таблицы
+    
+    Параметры:
+        session: Сессия БД
+        
+    Вызывает:
+        MigrationError: При ошибках создания таблицы
     """
     try:
+        _log_migration_step("Проверка таблицы applied_migrations")
+        
+        # Проверка существования таблицы
         result = session.execute(text("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
-                WHERE table_name = 'applied_migrations'
+                WHERE table_schema = 'public' 
+                AND table_name = 'applied_migrations'
             )
         """))
-        if not result.scalar():
-            logger.info("Создание таблицы applied_migrations")
-            session.execute(text("""
-                CREATE TABLE applied_migrations (
-                    id SERIAL PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL UNIQUE,
-                    applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                    checksum VARCHAR(64) NOT NULL
-                )
-            """))
-            session.commit()
+        exists = result.scalar()
+        
+        if exists:
+            _log_migration_step("Таблица существует", "Продолжение без создания")
+            return
+
+        _log_migration_step("Создание таблицы applied_migrations")
+        
+        # Создание таблицы
+        create_table_sql = """
+            CREATE TABLE applied_migrations (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                checksum VARCHAR(64) NOT NULL,
+                execution_time_ms FLOAT
+            )
+        """
+        session.execute(text(create_table_sql))
+        session.commit()
+        
+        _log_migration_step("Таблица создана", "Успешно создана таблица applied_migrations")
+        
     except SQLAlchemyError as e:
         session.rollback()
-        logger.error(f"Ошибка создания таблицы миграций: {str(e)}")
-        raise MigrationError("Ошибка создания таблицы миграций")
+        error_msg = f"Ошибка создания таблицы миграций: {str(e)}"
+        _log_migration_step("Ошибка SQL", error_msg, "error")
+        raise MigrationError(error_msg) from e
+    except Exception as e:
+        session.rollback()
+        error_msg = f"Неожиданная ошибка при работе с таблицей миграций: {str(e)}"
+        _log_migration_step("Критическая ошибка", error_msg, "critical")
+        raise MigrationError(error_msg) from e
 
-def get_applied_migrations(session) -> Dict[str, str]:
+def get_applied_migrations(session) -> Dict[str, Tuple[str, float]]:
     """
-    Получаем список примененных миграций
-    :param session: Сессия БД
-    :return: Словарь {имя_файла: контрольная_сумма}
-    :raises MigrationError: При ошибках запроса к БД
+    Получаем список примененных миграций с дополнительной информацией
+    
+    Параметры:
+        session: Сессия БД
+        
+    Возвращает:
+        Dict[str, Tuple[str, float]]: {имя_файла: (контрольная_сумма, время_выполнения_мс)}
+        
+    Вызывает:
+        MigrationError: При ошибках запроса к БД
     """
     try:
-        result = session.execute(text("SELECT name, checksum FROM applied_migrations ORDER BY id"))
-        return {row[0]: row[1] for row in result.fetchall()}
+        _log_migration_step("Получение списка примененных миграций")
+        
+        result = session.execute(text("""
+            SELECT name, checksum, execution_time_ms 
+            FROM applied_migrations 
+            ORDER BY applied_at
+        """))
+        
+        migrations = {row[0]: (row[1], row[2]) for row in result.fetchall()}
+        
+        _log_migration_step(
+            "Полученные миграции",
+            f"Найдено примененных миграций: {len(migrations)}\n"
+            f"Пример: {next(iter(migrations.items())) if migrations else 'нет'}"
+        )
+        
+        return migrations
+        
     except SQLAlchemyError as e:
-        logger.error(f"Ошибка получения списка миграций: {str(e)}")
-        raise MigrationError("Ошибка получения списка миграций")
+        error_msg = f"Ошибка получения списка миграций: {str(e)}"
+        _log_migration_step("Ошибка SQL", error_msg, "error")
+        raise MigrationError(error_msg) from e
+    except Exception as e:
+        error_msg = f"Неожиданная ошибка при получении миграций: {str(e)}"
+        _log_migration_step("Критическая ошибка", error_msg, "critical")
+        raise MigrationError(error_msg) from e
 
 def calculate_checksum(file_path: str) -> str:
     """
     Вычисляем SHA-256 контрольную сумму файла миграции
-    :param file_path: Путь к файлу миграции
-    :return: Контрольная сумма SHA-256
-    :raises MigrationError: При ошибках чтения файла
+    
+    Параметры:
+        file_path: Путь к файлу миграции
+        
+    Возвращает:
+        str: Контрольная сумма SHA-256
+        
+    Вызывает:
+        MigrationError: При ошибках чтения файла
     """
     try:
+        _log_migration_step("Вычисление контрольной суммы", f"Файл: {file_path}")
+        
         with open(file_path, 'rb') as f:
-            return hashlib.sha256(f.read()).hexdigest()
+            content = f.read()
+            checksum = hashlib.sha256(content).hexdigest()
+            
+        _log_migration_step(
+            "Контрольная сумма вычислена",
+            f"Файл: {os.path.basename(file_path)}\n"
+            f"Размер: {len(content)} байт\n"
+            f"SHA-256: {checksum}"
+        )
+        
+        return checksum
+        
     except Exception as e:
-        logger.error(f"Ошибка вычисления контрольной суммы: {str(e)}")
-        raise MigrationError("Ошибка вычисления контрольной суммы")
+        error_msg = f"Ошибка вычисления контрольной суммы для {file_path}: {str(e)}"
+        _log_migration_step("Ошибка", error_msg, "error")
+        raise MigrationError(error_msg, os.path.basename(file_path)) from e
 
 def split_sql_statements(sql: str) -> List[str]:
     """
     Разбивает SQL-скрипт на отдельные запросы с учетом dollar-quoted блоков
-    :param sql: Исходный SQL-скрипт
-    :return: Список отдельных SQL-запросов
+    
+    Параметры:
+        sql: Исходный SQL-скрипт
+        
+    Возвращает:
+        List[str]: Список отдельных SQL-запросов
     """
+    _log_migration_step("Разбор SQL на отдельные запросы")
+    
     statements = []
     current = ""
     in_dollar_quote = False
     dollar_quote_tag = ""
+    line_num = 0
+    statement_num = 0
     
     for line in sql.split('\n'):
+        line_num += 1
         if not in_dollar_quote:
-            # Проверяем начало dollar-quoted блока
             dollar_match = re.search(r'\$([^\$]*)\$', line)
             if dollar_match:
                 in_dollar_quote = True
                 dollar_quote_tag = dollar_match.group(0)
                 current += line + '\n'
+                logger.debug(f"Начало dollar-quoted блока (строка {line_num}): {dollar_quote_tag}")
                 continue
             
-            # Разбиваем по точкам с запятой вне dollar-quoted блоков
             if ';' in line:
                 parts = line.split(';')
                 for part in parts[:-1]:
                     current += part
-                    if current.strip():  # Не добавляем пустые запросы
+                    if current.strip():
+                        statement_num += 1
+                        logger.debug(f"Запрос #{statement_num} (строка {line_num}):\n{current.strip()}")
                         statements.append(current.strip())
                     current = ""
                 current += parts[-1] + '\n'
@@ -127,109 +265,257 @@ def split_sql_statements(sql: str) -> List[str]:
                 current += line + '\n'
         else:
             current += line + '\n'
-            # Проверяем конец dollar-quoted блока
             if dollar_quote_tag in line:
                 in_dollar_quote = False
+                statement_num += 1
+                logger.debug(f"Запрос #{statement_num} (dollar-quoted, строки {line_num-len(current.splitlines())+1}-{line_num}):\n{current.strip()}")
                 statements.append(current.strip())
                 current = ""
     
     if current.strip():
+        statement_num += 1
+        logger.debug(f"Запрос #{statement_num} (финальный):\n{current.strip()}")
         statements.append(current.strip())
+    
+    _log_migration_step(
+        "Результат разбора SQL",
+        f"Всего запросов: {len(statements)}\n"
+        f"Пример запроса: {statements[0][:100] + '...' if statements else 'нет'}"
+    )
     
     return [stmt for stmt in statements if stmt]
 
 def apply_migration(session, migration_file: str) -> None:
     """
-    Применяет одну миграцию
-    :param session: Сессия БД
-    :param migration_file: Имя файла миграции
-    :raises MigrationError: При ошибках выполнения миграции
+    Применяет одну миграцию с полным логированием каждого шага
+    
+    Параметры:
+        session: Сессия БД
+        migration_file: Имя файла миграции
+        
+    Вызывает:
+        MigrationError: При ошибках выполнения миграции
     """
+    start_time = time.time()
     file_path = os.path.join(MIGRATIONS_DIR, migration_file)
-    checksum = calculate_checksum(file_path)
-
+    
     try:
+        _log_migration_step(
+            "Начало применения миграции",
+            f"Файл: {migration_file}\n"
+            f"Полный путь: {file_path}"
+        )
+        
+        # Вычисление контрольной суммы
+        checksum = calculate_checksum(file_path)
+        
+        # Чтение SQL из файла
         with open(file_path, 'r', encoding='utf-8') as f:
             sql = f.read()
-
-        statements = split_sql_statements(sql)
-
-        for query in statements:
-            session.execute(text(query))
+            logger.debug(f"Содержимое SQL (первые 500 символов):\n{sql[:500]}...")
         
+        # Разбиение на отдельные запросы
+        statements = split_sql_statements(sql)
+        
+        # Выполнение каждого запроса
+        for i, query in enumerate(statements, 1):
+            query_start = time.time()
+            try:
+                logger.debug(f"Выполнение запроса {i}/{len(statements)}...")
+                session.execute(text(query))
+                query_time = (time.time() - query_start) * 1000
+                logger.debug(f"Запрос выполнен за {query_time:.2f} мс")
+            except Exception as e:
+                logger.error(f"Ошибка в запросе {i}:\n{query[:200]}...")
+                raise
+        
+        # Фиксация миграции в БД
+        execution_time = (time.time() - start_time) * 1000
         session.execute(
-            text("INSERT INTO applied_migrations (name, checksum) VALUES (:name, :checksum)"),
-            {"name": migration_file, "checksum": checksum}
+            text("""
+                INSERT INTO applied_migrations 
+                (name, checksum, execution_time_ms) 
+                VALUES (:name, :checksum, :execution_time)
+            """),
+            {
+                "name": migration_file, 
+                "checksum": checksum,
+                "execution_time": execution_time
+            }
         )
         session.commit()
-        logger.info(f"Применена миграция: {migration_file}")
+        
+        _log_migration_step(
+            "Миграция успешно применена",
+            f"Файл: {migration_file}\n"
+            f"Контрольная сумма: {checksum}\n"
+            f"Время выполнения: {execution_time:.2f} мс\n"
+            f"Количество запросов: {len(statements)}"
+        )
+        
     except Exception as e:
         session.rollback()
-        logger.error(f"Ошибка применения миграции {migration_file}: {str(e)}", exc_info=True)
-        raise MigrationError("Ошибка применения миграции")
+        error_msg = f"Ошибка применения миграции {migration_file}: {str(e)}"
+        _log_migration_step("Ошибка", error_msg, "error")
+        raise MigrationError(error_msg, migration_file) from e
 
 def verify_applied_migrations(session) -> None:
     """
     Проверяет целостность примененных миграций
-    :param session: Сессия БД
-    :raises MigrationError: При обнаружении проблем
+    
+    Параметры:
+        session: Сессия БД
+        
+    Вызывает:
+        MigrationError: При обнаружении проблем
     """
     try:
+        _log_migration_step("Проверка целостности миграций")
+        
         applied = get_applied_migrations(session)
         files = get_migration_files()
-
-        # Проверяем, что все примененные миграции существуют
-        for name, checksum in applied.items():
-            if name not in files:
-                logger.error(f"Примененная миграция {name} отсутствует в директории")
-                raise MigrationError("Отсутствует примененная миграция")
-            
+        
+        # Проверка отсутствующих миграций
+        missing_in_files = set(applied.keys()) - set(files)
+        if missing_in_files:
+            error_msg = f"Примененные миграции отсутствуют в директории: {', '.join(missing_in_files)}"
+            _log_migration_step("Ошибка", error_msg, "error")
+            raise MigrationError(error_msg)
+        
+        # Проверка контрольных сумм
+        for name, (checksum, _) in applied.items():
             current_checksum = calculate_checksum(os.path.join(MIGRATIONS_DIR, name))
             if current_checksum != checksum:
-                logger.error(f"Контрольная сумма миграции {name} не совпадает")
-                raise MigrationError("Несовпадение контрольной суммы")
+                error_msg = f"Контрольная сумма миграции {name} не совпадает (было: {checksum}, стало: {current_checksum})"
+                _log_migration_step("Ошибка", error_msg, "error")
+                raise MigrationError(error_msg, name)
+        
+        _log_migration_step(
+            "Проверка целостности завершена",
+            f"Проверено миграций: {len(applied)}\n"
+            f"Все контрольные суммы совпадают"
+        )
+        
     except Exception as e:
-        logger.error(f"Ошибка проверки миграций: {str(e)}")
-        raise MigrationError("Ошибка проверки миграций")
+        error_msg = f"Ошибка проверки миграций: {str(e)}"
+        _log_migration_step("Критическая ошибка", error_msg, "critical")
+        raise MigrationError(error_msg) from e
 
-def run_migrations() -> None:
+def run_migrations() -> List[str]:
     """
-    Выполняет все непримененные миграции
-    :raises MigrationError: При ошибках выполнения миграций
+    Выполняет все непримененные миграции с детальным логированием
+    
+    Возвращает:
+        List[str]: Список примененных миграций
+        
+    Вызывает:
+        MigrationError: При ошибках выполнения миграций
     """
-    logger.info("Запуск миграций базы данных...")
+    total_start = time.time()
+    applied_migrations = []
     
     try:
+        _log_migration_step(
+            "Запуск процесса миграций",
+            f"Директория миграций: {MIGRATIONS_DIR}"
+        )
+        
         with get_db_session() as session:
+            # Проверка и создание таблицы миграций
             check_migrations_table(session)
+            
+            # Проверка целостности существующих миграций
             verify_applied_migrations(session)
-
-            applied = get_applied_migrations(session)
-            for migration_file in get_migration_files():
-                if migration_file not in applied:
-                    logger.info(f"Применение миграции: {migration_file}")
+            
+            # Получение списка примененных и доступных миграций
+            applied = set(get_applied_migrations(session).keys())
+            all_files = set(get_migration_files())
+            pending = sorted(all_files - applied)
+            
+            _log_migration_step(
+                "Статус миграций",
+                f"Всего миграций доступно: {len(all_files)}\n"
+                f"Уже применено: {len(applied)}\n"
+                f"Ожидает применения: {len(pending)}\n"
+                f"Список ожидающих: {', '.join(pending) if pending else 'нет'}"
+            )
+            
+            if not pending:
+                _log_migration_step(
+                    "Нет новых миграций",
+                    "Все миграции уже применены",
+                    "info"
+                )
+                return []
+            
+            # Применение каждой миграции
+            for migration_file in pending:
+                try:
                     apply_migration(session, migration_file)
-
-            logger.info("Все миграции успешно применены")
+                    applied_migrations.append(migration_file)
+                except Exception as e:
+                    error_msg = f"Прерывание процесса миграций из-за ошибки в {migration_file}"
+                    _log_migration_step("Критическая ошибка", error_msg, "critical")
+                    raise
+        
+        total_time = (time.time() - total_start) * 1000
+        _log_migration_step(
+            "Все миграции успешно применены",
+            f"Применено миграций: {len(applied_migrations)}\n"
+            f"Общее время выполнения: {total_time:.2f} мс\n"
+            f"Список примененных: {', '.join(applied_migrations)}"
+        )
+        
+        return applied_migrations
+        
     except Exception as e:
-        logger.critical(f"Ошибка выполнения миграций: {str(e)}", exc_info=True)
-        raise MigrationError("Ошибка выполнения миграций")
+        error_msg = f"Ошибка выполнения миграций: {str(e)}"
+        _log_migration_step("Критическая ошибка", error_msg, "critical")
+        raise MigrationError(error_msg) from e
 
-def check_migrations_status() -> bool:
+def check_migrations_status() -> Tuple[bool, List[str]]:
     """
-    Проверяет состояние миграций
-    :return: True если все миграции применены, False если есть непримененные
+    Проверяет состояние миграций с детальным логированием
+    
+    Возвращает:
+        Tuple[bool, List[str]]: 
+            - True если все миграции применены, False если есть непримененные
+            - Список непримененных миграций
     """
     try:
+        _log_migration_step("Проверка состояния миграций")
+        
         with get_db_session() as session:
             check_migrations_table(session)
             verify_applied_migrations(session)
             
-            pending = set(get_migration_files()) - set(get_applied_migrations(session).keys())
+            applied = set(get_applied_migrations(session).keys())
+            all_files = set(get_migration_files())
+            pending = sorted(all_files - applied)
+            
+            status_msg = (
+                f"Всего миграций: {len(all_files)}\n"
+                f"Применено: {len(applied)}\n"
+                f"Ожидает: {len(pending)}\n"
+                f"Список ожидающих: {', '.join(pending) if pending else 'нет'}"
+            )
+            
             if pending:
-                logger.warning(f"Ожидают применения миграции: {', '.join(pending)}")
-                return False
-            return True
+                _log_migration_step(
+                    "Обнаружены непримененные миграции", 
+                    status_msg,
+                    "warning"
+                )
+                return (False, pending)
+            
+            _log_migration_step(
+                "Все миграции применены",
+                status_msg,
+                "info"
+            )
+            return (True, [])
+            
     except Exception as e:
-        logger.error(f"Ошибка проверки состояния миграций: {str(e)}")
-        return False
+        error_msg = f"Ошибка проверки состояния миграций: {str(e)}"
+        _log_migration_step("Ошибка", error_msg, "error")
+        return (False, [])

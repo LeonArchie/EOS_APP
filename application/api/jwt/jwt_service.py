@@ -1,199 +1,408 @@
 # SPDX-License-Identifier: AGPL-3.0-only WITH LICENSE-ADDITIONAL
 # Copyright (C) 2025 Петунин Лев Михайлович
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import jwt
 import hashlib
-import time
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes, PublicKeyTypes
+from typing import Dict, Union, Optional, Tuple
 from maintenance.database_connector import get_db_session
 from maintenance.read_config import config
 from maintenance.logger import setup_logger
 from sqlalchemy import text
+import json
+import time
 
 logger = setup_logger(__name__)
 
 class JWTService:
-    """
-    Сервис для работы с JWT-токенами и управления сессиями с детальным логированием.
-    """
+    """Сервис для работы с JWT-токенами и сессиями с расширенным логированием."""
     
     _secret = config.get('app.jwt_key')
-    _access_expires = config.get('app.access_expires', 600)
-    _refresh_expires = config.get('app.refresh_expires', 86400)
+    _access_expires = config.get('app.access_expires', 600)      # 10 минут
+    _refresh_expires = config.get('app.refresh_expires', 1200)   # 20 минут
     _max_sessions = config.get('app.count_session', 5)
-
+    
+    # RSA ключи
+    _private_key = None
+    _public_key = None
+    
     @classmethod
-    def generate_tokens(cls, user_id):
-        """
-        Генерация пары токенов (access и refresh) с детальным логированием.
-        """
+    def _log_jwt_operation(cls, operation: str, details: str = "", level: str = "info") -> None:
+        """Унифицированное логирование операций с JWT"""
+        log_method = getattr(logger, level.lower(), logger.info)
+        border = "=" * 50
+        log_method(f"\n{border}\nJWT {operation.upper()}\n{details}\n{border}")
+    
+    @classmethod
+    def _serialize_payload_for_logging(cls, payload: Dict) -> str:
+        """Вспомогательный метод для безопасной сериализации payload JWT для логов."""
         try:
-            logger.info(f"[Token Generation] Начало генерации токенов для user_id: {user_id}")
-            logger.debug(f"[Token Generation] Параметры: access_expires={cls._access_expires}s, refresh_expires={cls._refresh_expires}s")
+            # Создаем копию payload, чтобы не изменять оригинал
+            log_payload = payload.copy()
+            # Конвертируем объекты datetime в строки в формате ISO
+            for key, value in log_payload.items():
+                if isinstance(value, datetime):
+                    log_payload[key] = value.isoformat()
+            return json.dumps(log_payload, ensure_ascii=False)
+        except Exception as e:
+            cls._log_jwt_operation(
+                "Ошибка сериализации payload для логов",
+                f"Оригинальный payload: {payload}\n"
+                f"Ошибка: {type(e).__name__}: {str(e)}",
+                "error"
+            )
+            return str(payload)  # Возвращаем строковое представление в случае ошибки
+    
+    @classmethod
+    def _generate_keys(cls) -> None:
+        """Генерация RSA ключей с логированием."""
+        if cls._private_key is None:
+            start_time = time.time()
+            try:
+                cls._log_jwt_operation("Генерация RSA ключей")
+                
+                cls._private_key = rsa.generate_private_key(
+                    public_exponent=65537,
+                    key_size=2048,
+                    backend=default_backend()
+                )
+                cls._public_key = cls._private_key.public_key()
+                
+                gen_time = (time.time() - start_time) * 1000
+                cls._log_jwt_operation(
+                    "RSA ключи сгенерированы",
+                    f"Тип приватного ключа: {type(cls._private_key).__name__}\n"
+                    f"Тип публичного ключа: {type(cls._public_key).__name__}\n"
+                    f"Время генерации: {gen_time:.2f} мс"
+                )
+            except Exception as e:
+                cls._log_jwt_operation(
+                    "Ошибка генерации ключей",
+                    f"Тип ошибки: {type(e).__name__}\n"
+                    f"Сообщение: {str(e)}",
+                    "error"
+                )
+                raise
+    
+    @classmethod
+    def _get_private_key_pem(cls) -> bytes:
+        """Получение приватного ключа в PEM формате с логированием."""
+        cls._generate_keys()
+        try:
+            start_time = time.time()
+            key_pem = cls._private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            )
             
-            start_time = time.perf_counter()
+            cls._log_jwt_operation(
+                "Получен приватный ключ",
+                f"Длина ключа: {len(key_pem)} байт\n"
+                f"Время выполнения: {(time.time() - start_time) * 1000:.2f} мс",
+                "debug"
+            )
+            return key_pem
+        except Exception as e:
+            cls._log_jwt_operation(
+                "Ошибка получения приватного ключа",
+                f"Тип ошибки: {type(e).__name__}\n"
+                f"Сообщение: {str(e)}",
+                "error"
+            )
+            raise
+    
+    @classmethod
+    def _get_public_key_pem(cls) -> bytes:
+        """Получение публичного ключа в PEM формате с логированием."""
+        cls._generate_keys()
+        try:
+            start_time = time.time()
+            key_pem = cls._public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            )
             
-            # Преобразование user_id в строку, если это UUID
+            cls._log_jwt_operation(
+                "Получен публичный ключ",
+                f"Длина ключа: {len(key_pem)} байт\n"
+                f"Время выполнения: {(time.time() - start_time) * 1000:.2f} мс",
+                "debug"
+            )
+            return key_pem
+        except Exception as e:
+            cls._log_jwt_operation(
+                "Ошибка получения публичного ключа",
+                f"Тип ошибки: {type(e).__name__}\n"
+                f"Сообщение: {str(e)}",
+                "error"
+            )
+            raise
+    
+    @classmethod
+    def generate_tokens(cls, user_id: Union[str, int], algorithm: str = 'RS256') -> Dict[str, Union[str, int]]:
+        """
+        Генерация JWT токенов с детальным логированием.
+        
+        Параметры:
+            user_id: Идентификатор пользователя
+            algorithm: Алгоритм подписи (RS256/HS256)
+            
+        Возвращает:
+            Словарь с access_token, refresh_token и метаданными
+            
+        Вызывает:
+            Exception: При ошибках генерации токенов
+        """
+        start_time = time.time()
+        try:
             user_id_str = str(user_id)
+            cls._log_jwt_operation(
+                "Начало генерации токенов",
+                f"User ID: {user_id_str}\n"
+                f"Алгоритм: {algorithm}\n"
+                f"Access TTL: {cls._access_expires} сек\n"
+                f"Refresh TTL: {cls._refresh_expires} сек"
+            )
             
-            # Подготовка payload для access токена
-            access_exp = datetime.utcnow() + timedelta(seconds=cls._access_expires)
+            # Формирование payload для токенов
+            now = datetime.now(timezone.utc)
             access_payload = {
-                'user_id': user_id_str,  # Используем строковое представление
-                'exp': access_exp,
-                'type': 'access'
+                'user_id': user_id_str,
+                'exp': now + timedelta(seconds=cls._access_expires),
+                'iat': now,
+                'type': 'access',
+                'alg': algorithm
             }
-            logger.debug(f"[Token Generation] Access Token Payload: {access_payload}")
-            logger.debug(f"[Token Generation] Access Token Expires: {access_exp.isoformat()}")
             
-            # Генерация access токена
-            access_token = jwt.encode(access_payload, cls._secret, algorithm='HS256')
-            logger.debug(f"[Token Generation] Access Token (first 10 chars): {access_token[:10]}...")
-            
-            # Подготовка payload для refresh токена
-            refresh_exp = datetime.utcnow() + timedelta(seconds=cls._refresh_expires)
             refresh_payload = {
-                'user_id': user_id_str,  # Используем строковое представление
-                'exp': refresh_exp,
-                'type': 'refresh'
+                'user_id': user_id_str,
+                'exp': now + timedelta(seconds=cls._refresh_expires),
+                'iat': now,
+                'type': 'refresh',
+                'alg': algorithm
             }
-            logger.debug(f"[Token Generation] Refresh Token Payload: {refresh_payload}")
-            logger.debug(f"[Token Generation] Refresh Token Expires: {refresh_exp.isoformat()}")
             
-            # Генерация refresh токена
-            refresh_token = jwt.encode(refresh_payload, cls._secret, algorithm='HS256')
-            logger.debug(f"[Token Generation] Refresh Token (first 10 chars): {refresh_token[:10]}...")
+            # Выбор ключа в зависимости от алгоритма
+            key = cls._get_private_key_pem() if algorithm == 'RS256' else cls._secret
+            key_info = "RSA private key" if algorithm == 'RS256' else "HMAC secret"
             
-            # Расчет времени выполнения
-            generation_time = time.perf_counter() - start_time
-            logger.info(f"[Token Generation] Успешная генерация токенов для user_id: {user_id}")
-            logger.debug(f"[Token Generation] Время генерации: {generation_time:.4f} секунд")
+            cls._log_jwt_operation(
+                "Кодирование токенов",
+                f"Используемый ключ: {key_info}\n"
+                f"Access payload: {cls._serialize_payload_for_logging(access_payload)}\n"
+                f"Refresh payload: {cls._serialize_payload_for_logging(refresh_payload)}",
+                "debug"
+            )
             
-            return {
+            # Генерация токенов
+            access_token = jwt.encode(access_payload, key, algorithm=algorithm)
+            refresh_token = jwt.encode(refresh_payload, key, algorithm=algorithm)
+            
+            # Формирование результата
+            result = {
                 'access_token': access_token,
                 'refresh_token': refresh_token,
-                'expires_in': cls._access_expires
+                'expires_in': cls._access_expires,
+                'algorithm': algorithm
             }
             
-        except jwt.PyJWTError as e:
-            logger.error(f"[Token Generation] Ошибка JWT: {str(e)}", exc_info=True)
-            raise
+            cls._log_jwt_operation(
+                "Токены успешно сгенерированы",
+                f"Длина access token: {len(access_token)}\n"
+                f"Длина refresh token: {len(refresh_token)}\n"
+                f"Общее время: {(time.time() - start_time) * 1000:.2f} мс",
+                "info"
+            )
+            
+            return result
+            
         except Exception as e:
-            logger.critical(f"[Token Generation] Критическая ошибка: {str(e)}", exc_info=True)
+            cls._log_jwt_operation(
+                "Ошибка генерации токенов",
+                f"User ID: {user_id_str}\n"
+                f"Алгоритм: {algorithm}\n"
+                f"Тип ошибки: {type(e).__name__}\n"
+                f"Сообщение: {str(e)}\n"
+                f"Время до ошибки: {(time.time() - start_time) * 1000:.2f} мс",
+                "error"
+            )
             raise
-
+    
     @classmethod
-    def create_session(cls, user_id, access_token, refresh_token, refresh_token_hash, user_agent, ip_address):
-        """
-        Создание сессии пользователя в БД с максимально подробным логированием.
-        """
-        try:
-            logger.info(f"[Session Creation] Начало создания сессии для user_id: {user_id}")
-            logger.debug(f"[Session Creation] Параметры: user_agent='{user_agent}', ip={ip_address}")
-            logger.debug(f"[Session Creation] Access Token (first 10 chars): {access_token[:10]}...")
-            logger.debug(f"[Session Creation] Refresh Token (first 10 chars): {refresh_token[:10]}...")
-            logger.debug(f"[Session Creation] Refresh Token Hash: {refresh_token_hash}")
-            
-            start_time = time.perf_counter()
-            
-            # Проверка и очистка старых сессий
-            cls._remove_old_sessions_if_needed(user_id)
-            
-            with get_db_session() as session:
-                logger.debug("[Session Creation] Установлено соединение с БД")
-                
-                # Подготовка данных для вставки
-                session_data = {
-                    'user_id': user_id,
-                    'access_token': access_token,
-                    'refresh_token_hash': refresh_token_hash,
-                    'user_agent': user_agent,
-                    'ip_address': ip_address
-                }
-                logger.debug(f"[Session Creation] Данные сессии: {session_data}")
-                
-                # Выполнение SQL-запроса
-                result = session.execute(
-                    text("""
-                        INSERT INTO sessions 
-                        (user_id, access_token, refresh_token_hash, user_agent, ip_address, 
-                         created_at, expires_at, is_revoked)
-                        VALUES 
-                        (:user_id, :access_token, :refresh_token_hash, :user_agent, :ip_address, 
-                         NOW(), NOW() + INTERVAL '1 hour', FALSE)
-                        RETURNING session_id, created_at, expires_at
-                    """),
-                    session_data
-                )
-                
-                # Получение результатов вставки
-                session_info = result.fetchone()
-                session.commit()
-                
-                logger.debug(f"[Session Creation] Данные созданной сессии: {dict(session_info._asdict())}")
-                
-                # Расчет времени выполнения
-                execution_time = time.perf_counter() - start_time
-                logger.info(f"[Session Creation] Сессия успешно создана. ID: {session_info.session_id}")
-                logger.debug(f"[Session Creation] Время выполнения: {execution_time:.4f} секунд")
-                
-        except Exception as e:
-            logger.error(f"[Session Creation] Ошибка создания сессии: {str(e)}", exc_info=True)
-            raise
-
-    @classmethod
-    def _remove_old_sessions_if_needed(cls, user_id):
+    def _remove_old_sessions_if_needed(cls, user_id: Union[str, int]) -> Tuple[int, int]:
         """
         Удаление старых сессий при превышении лимита с детальным логированием.
+        
+        Возвращает:
+            Tuple[int, int]: (удалено просроченных, удалено старых)
         """
+        start_time = time.time()
+        user_id_str = str(user_id)
+        expired_deleted = 0
+        old_deleted = 0
+        
         try:
-            logger.debug(f"[Session Cleanup] Проверка сессий для user_id: {user_id}")
+            cls._log_jwt_operation(
+                "Проверка лимита сессий",
+                f"User ID: {user_id_str}\n"
+                f"Максимум сессий: {cls._max_sessions}"
+            )
             
             with get_db_session() as session:
-                # Получение количества активных сессий
+                # Удаление просроченных сессий
+                result = session.execute(
+                    text("DELETE FROM sessions WHERE user_id = :user_id AND expires_at <= NOW() RETURNING session_id"),
+                    {'user_id': user_id_str}
+                )
+                expired_deleted = len(result.fetchall())
+                
+                # Проверка количества активных сессий
                 active_count = session.execute(
-                    text("""
-                        SELECT COUNT(*) FROM sessions 
-                        WHERE user_id = :user_id 
-                        AND is_revoked = FALSE 
-                        AND expires_at > NOW()
-                    """),
-                    {'user_id': user_id}
+                    text("SELECT COUNT(*) FROM sessions WHERE user_id = :user_id"),
+                    {'user_id': user_id_str}
                 ).scalar()
                 
-                logger.debug(f"[Session Cleanup] Текущее количество активных сессий: {active_count}")
-                
+                # Удаление самых старых сессий при превышении лимита
                 if active_count >= cls._max_sessions:
-                    logger.info(f"[Session Cleanup] Превышен лимит сессий ({cls._max_sessions}), удаление самой старой")
+                    delete_count = active_count - cls._max_sessions + 1
+                    cls._log_jwt_operation(
+                        "Превышен лимит сессий",
+                        f"Активных сессий: {active_count}\n"
+                        f"Будет удалено: {delete_count}",
+                        "warning"
+                    )
                     
-                    # Получение ID самой старой сессии
-                    oldest_session = session.execute(
+                    result = session.execute(
                         text("""
-                            SELECT session_id, created_at FROM sessions 
-                            WHERE user_id = :user_id 
-                            ORDER BY created_at ASC 
-                            LIMIT 1
+                            DELETE FROM sessions 
+                            WHERE session_id IN (
+                                SELECT session_id FROM sessions 
+                                WHERE user_id = :user_id 
+                                ORDER BY created_at ASC 
+                                LIMIT :limit
+                            ) RETURNING session_id
                         """),
-                        {'user_id': user_id}
-                    ).fetchone()
-                    
-                    if oldest_session:
-                        logger.debug(f"[Session Cleanup] Удаляемая сессия: ID={oldest_session.session_id}, создана={oldest_session.created_at}")
-                        
-                        # Удаление сессии
-                        delete_result = session.execute(
-                            text("""
-                                DELETE FROM sessions 
-                                WHERE session_id = :session_id
-                            """),
-                            {'session_id': oldest_session.session_id}
-                        )
-                        session.commit()
-                        
-                        logger.info(f"[Session Cleanup] Сессия ID={oldest_session.session_id} успешно удалена")
-                    else:
-                        logger.warning("[Session Cleanup] Не найдены сессии для удаления")
+                        {
+                            'user_id': user_id_str,
+                            'limit': delete_count
+                        }
+                    )
+                    old_deleted = len(result.fetchall())
+                    session.commit()
+                
+                cls._log_jwt_operation(
+                    "Очистка сессий завершена",
+                    f"Удалено просроченных: {expired_deleted}\n"
+                    f"Удалено старых: {old_deleted}\n"
+                    f"Общее время: {(time.time() - start_time) * 1000:.2f} мс"
+                )
+                
+                return (expired_deleted, old_deleted)
                 
         except Exception as e:
-            logger.error(f"[Session Cleanup] Ошибка очистки сессий: {str(e)}", exc_info=True)
+            cls._log_jwt_operation(
+                "Ошибка очистки сессий",
+                f"User ID: {user_id_str}\n"
+                f"Тип ошибки: {type(e).__name__}\n"
+                f"Сообщение: {str(e)}\n"
+                f"Время до ошибки: {(time.time() - start_time) * 1000:.2f} мс",
+                "error"
+            )
+            raise
+    
+    @classmethod
+    def create_session(
+        cls,
+        user_id: Union[str, int],
+        access_token: str,
+        refresh_token: str,
+        refresh_token_hash: str,
+        user_agent: str,
+        ip_address: str
+    ) -> str:
+        """
+        Создание новой сессии с детальным логированием.
+        
+        Параметры:
+            user_id: Идентификатор пользователя
+            access_token: Access JWT токен
+            refresh_token: Refresh JWT токен
+            refresh_token_hash: Хеш refresh токена
+            user_agent: User-Agent клиента
+            ip_address: IP адрес клиента
+            
+        Возвращает:
+            Идентификатор созданной сессии
+            
+        Вызывает:
+            Exception: При ошибках создания сессии
+        """
+        start_time = time.time()
+        user_id_str = str(user_id)
+        
+        try:
+            cls._log_jwt_operation(
+                "Создание новой сессии",
+                f"User ID: {user_id_str}\n"
+                f"User-Agent: {user_agent[:100]}...\n"
+                f"IP: {ip_address}"
+            )
+            
+            # Очистка старых сессий
+            expired_deleted, old_deleted = cls._remove_old_sessions_if_needed(user_id_str)
+            
+            # Создание новой сессии
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=cls._refresh_expires)
+            
+            with get_db_session() as session:
+                result = session.execute(
+                    text("""
+                        INSERT INTO sessions (
+                            user_id, access_token, refresh_token_hash,
+                            user_agent, ip_address, expires_at
+                        ) VALUES (
+                            :user_id, :access_token, :refresh_token_hash,
+                            :user_agent, :ip_address, :expires_at
+                        ) RETURNING session_id, created_at
+                    """),
+                    {
+                        'user_id': user_id_str,
+                        'access_token': access_token,
+                        'refresh_token_hash': refresh_token_hash,
+                        'user_agent': user_agent,
+                        'ip_address': ip_address,
+                        'expires_at': expires_at
+                    }
+                )
+                session.commit()
+                
+                row = result.fetchone()
+                session_id = str(row.session_id)
+                created_at = row.created_at
+                
+                cls._log_jwt_operation(
+                    "Сессия успешно создана",
+                    f"Session ID: {session_id}\n"
+                    f"Создана: {created_at}\n"
+                    f"Истекает: {expires_at}\n"
+                    f"Удалено сессий: {expired_deleted + old_deleted}\n"
+                    f"Общее время: {(time.time() - start_time) * 1000:.2f} мс"
+                )
+                
+                return session_id
+                
+        except Exception as e:
+            cls._log_jwt_operation(
+                "Ошибка создания сессии",
+                f"User ID: {user_id_str}\n"
+                f"Тип ошибки: {type(e).__name__}\n"
+                f"Сообщение: {str(e)}\n"
+                f"Время до ошибки: {(time.time() - start_time) * 1000:.2f} мс",
+                "error"
+            )
             raise

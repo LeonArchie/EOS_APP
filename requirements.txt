@@ -1,12 +1,19 @@
-# Flask и сервер
+# Основные зависимости
 Flask>=3.0.0
 gunicorn==23.0.0
 Werkzeug==3.0.6
+watchdog>=3.0.0
 
 # База данных
 psycopg2-binary>=2.9.10
-SQLAlchemy>=2.0.0  # Обновил до 2.x для полной поддержки async
+SQLAlchemy>=2.0.0
+alembic>=1.13.1  # Обязательно, так как используется в migration.py
 
-# JWT и безопасность
+# Безопасность и JWT
 PyJWT>=2.8.0
-cryptography>=42.0.0  # Для дополнительной защиты
+cryptography>=42.0.0  # Для RSA-ключей в JWT
+bcrypt>=4.1.2  # Заменяет SHA-256 для паролей (используйте вместо hashlib)
+
+# Утилиты
+python-dotenv>=1.0.0  # Для конфигурации (используется в read_config.py)
+psutil==5.9.5
