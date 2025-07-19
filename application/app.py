@@ -52,7 +52,10 @@ def create_app():
         initialize_database()
         
         logger.debug("Проверка подключения к БД...")
-        if not wait_for_database_connection(retries=3, delay=2):
+        db_max_retries = config.get('db.max_retries', 5)  # Значение из конфига или 5 по умолчанию
+        db_retry_delay = config.get('db.retry_delay', 5)  # Значение из конфига или 5 по умолчанию
+
+        if not wait_for_database_connection(retries=db_max_retries, delay=db_retry_delay):
             logger.critical("Не удалось установить подключение к базе данных после нескольких попыток")
             raise RuntimeError("Не удалось подключиться к базе данных")
         
