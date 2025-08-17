@@ -1,30 +1,37 @@
-apiVersion: networking.k8s.io/v1  # Версия API для Ingress
-kind: Ingress                    # Тип ресурса - Ingress (внешний роутер)
+apiVersion: networking.k8s.io/v1  # Используем актуальную версию API для Ingress
+kind: Ingress                    # Тип ресурса — Ingress (внешний роутер для трафика)
 metadata:
-  name: global-ingress        # Имя Ingress ресурса
-  annotations:                   # Аннотации для настройки поведения
-    nginx.ingress.kubernetes.io/rewrite-target: /$2  # Правила перезаписи URL
-    # cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Для автоматического TLS
+  name: global-ingress           # Уникальное имя Ingress-ресурса в кластере
+  annotations:                   # Аннотации для тонкой настройки поведения Nginx Ingress
+    nginx.ingress.kubernetes.io/rewrite-target: /$2  # Перезаписывает URL, удаляя префикс (/test или /config)
+    nginx.ingress.kubernetes.io/use-regex: "true"     # Разрешает использование regex в путях
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Раскомментировать для автоматического выпуска TLS-сертификатов
+
 spec:
-  rules:
-  - host: test-k8s.school59-ekb.ru      # Домен, по которому будет доступно приложение
+  rules:                         # Правила маршрутизации входящего трафика
+  - host: test-k8s.school59-ekb.ru  # Домен, к которому применяются правила
     http:
       paths:
-      - path: /test(/|$)(.*)             # Путь для маршрутизации
-        pathType: Prefix         # Тип сопоставления пути
+      - path: /test(/|$)(.*)     # Регулярное выражение:
+                                 # - `/test` — обязательный префикс
+                                 # - `(/|$)` — совпадает с `/` или концом строки
+                                 # - `(.*)` — захватывает оставшуюся часть пути в переменную `$2`
+        pathType: ImplementationSpecific  # Особый тип пути, совместимый с regex
+        backend:                  # Куда направлять трафик
+          service:
+            name: flask-app-service  # Имя сервиса внутри кластера
+            port:
+              number: 5000       # Порт сервиса (должен совпадать с портом в Service)
+
+      - path: /config(/|$)(.*)   # Аналогичное правило для пути /config
+        pathType: ImplementationSpecific
         backend:
           service:
-            name: flask-app-service  # Имя сервиса для перенаправления трафика
+            name: app-config
             port:
-              number: 5000         # Порт сервиса
-      - path: /config(/|$)(.*)             # Путь для маршрутизации
-        pathType: Prefix         # Тип сопоставления пути
-        backend:
-          service:
-            name: flask-app-service  # Имя сервиса для перенаправления трафика
-            port:
-              number: 5000         # Порт сервиса
-  # tls:                        # (Опционально) Настройки TLS
+              number: 5000
+
+  # tls:                        # Секция для HTTPS (раскомментировать при необходимости)
   # - hosts:
-  #   - your-domain.com
-  #   secretName: flask-app-tls  # Имя секрета с сертификатом
+  #   - test-k8s.school59-ekb.ru # Домен для сертификата
+  #   secretName: flask-app-tls  # Имя секрета, где cert-manager сохранит сертификат
