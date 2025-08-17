@@ -27,7 +27,7 @@ spec:
         pathType: ImplementationSpecific
         backend:
           service:
-            name: app-config
+            name: app-config-service
             port:
               number: 5000
 
