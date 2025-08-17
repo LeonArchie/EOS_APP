@@ -1,32 +1,39 @@
+# config_create.py
 from flask import Blueprint, request, jsonify
 import os
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 config_bp = Blueprint('config', __name__)
 
-# Создаем папку configures, если ее нет
 CONFIG_DIR = "configures"
 if not os.path.exists(CONFIG_DIR):
     os.makedirs(CONFIG_DIR)
+    logger.info("Создана директория для конфигураций: %s", CONFIG_DIR)
 
 @config_bp.route('/config-create/<name>', methods=['POST'])
 def create_config(name):
     try:
-        # Получаем JSON из тела запроса
+        logger.info("Получен запрос на создание конфигурации: %s", name)
+        
         data = request.get_json()
-        
-        # Проверяем, что данные есть
         if not data:
-            return jsonify({"error": "No JSON data provided"}), 400
+            logger.warning("Запрос не содержит JSON данных")
+            return jsonify({"error": "Не предоставлены JSON данные"}), 400
         
-        # Формируем путь к файлу
         file_path = os.path.join(CONFIG_DIR, f"{name}.json")
         
-        # Записываем данные в файл
         with open(file_path, 'w') as f:
             json.dump(data, f, indent=4)
         
-        return jsonify({"status": "success", "message": f"Config {name}.json created"}), 201
+        logger.info("Конфигурационный файл успешно создан: %s", file_path)
+        return jsonify({
+            "status": "success",
+            "message": f"Конфигурация {name}.json создана"
+        }), 201
     
     except Exception as e:
+        logger.error("Ошибка при создании конфигурации: %s", str(e), exc_info=True)
         return jsonify({"error": str(e)}), 500
