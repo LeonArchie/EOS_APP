@@ -1,37 +1,33 @@
-apiVersion: networking.k8s.io/v1  # Используем актуальную версию API для Ingress
-kind: Ingress                    # Тип ресурса — Ingress (внешний роутер для трафика)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: global-ingress           # Уникальное имя Ingress-ресурса в кластере
-  annotations:                   # Аннотации для тонкой настройки поведения Nginx Ingress
-    nginx.ingress.kubernetes.io/rewrite-target: /$2  # Перезаписывает URL, удаляя префикс (/test или /config)
-    nginx.ingress.kubernetes.io/use-regex: "true"     # Разрешает использование regex в путях
-    # cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Раскомментировать для автоматического выпуска TLS-сертификатов
+  name: global-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /  # Упрощенный rewrite
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
 
 spec:
-  rules:                         # Правила маршрутизации входящего трафика
-  - host: test-k8s.school59-ekb.ru  # Домен, к которому применяются правила
+  rules:
+  - host: test-k8s.school59-ekb.ru
     http:
       paths:
-      - path: /test(/|$)(.*)     # Регулярное выражение:
-                                 # - `/test` — обязательный префикс
-                                 # - `(/|$)` — совпадает с `/` или концом строки
-                                 # - `(.*)` — захватывает оставшуюся часть пути в переменную `$2`
-        pathType: ImplementationSpecific  # Особый тип пути, совместимый с regex
-        backend:                  # Куда направлять трафик
+      - path: /test  # Простой путь без regex
+        pathType: Prefix
+        backend:
           service:
-            name: flask-app-service  # Имя сервиса внутри кластера
-            port:
-              number: 5000       # Порт сервиса (должен совпадать с портом в Service)
+            name: flask-app-service
+            port: 
+              number: 5000
 
-      - path: /config(/|$)(.*)   # Аналогичное правило для пути /config
-        pathType: ImplementationSpecific
+      - path: /config  # Простой путь без regex
+        pathType: Prefix
         backend:
           service:
             name: app-config-service
             port:
               number: 5000
 
-  # tls:                        # Секция для HTTPS (раскомментировать при необходимости)
+  # tls:
   # - hosts:
-  #   - test-k8s.school59-ekb.ru # Домен для сертификата
-  #   secretName: flask-app-tls  # Имя секрета, где cert-manager сохранит сертификат
+  #   - test-k8s.school59-ekb.ru
+  #   secretName: flask-app-tls
