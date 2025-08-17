@@ -1,0 +1,43 @@
+apiVersion: apps/v1        # Версия API для работы с Deployments
+kind: Deployment           # Тип ресурса Kubernetes - Deployment
+metadata:
+  name: flask-app          # Имя деплоймента в кластере
+  labels:
+    app: flask-app         # Метка для идентификации ресурса
+spec:
+  replicas: 1              # Количество реплик (pod'ов) для запуска
+  selector:
+    matchLabels:
+      app: flask-app       # Селектор для управления pod'ами с этой меткой
+  template:                # Шаблон для создания pod'ов
+    metadata:
+      labels:
+        app: flask-app     # Метка, которая будет у создаваемых pod'ов
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: flask-app    # Имя контейнера внутри pod'а
+        image: "{{IMAGE_NAME}}"  # Используемый Docker образ
+        ports:
+        - containerPort: 5000  # Порт, который открывает контейнер
+        env:                   # Переменные окружения
+        - name: FLASK_ENV      # Установка окружения Flask в production
+          value: "production"
+        resources:             # (Опционально) Лимиты ресурсов
+          requests:
+            cpu: "100m"       # Запрашиваем 0.1 CPU
+            memory: "128Mi"   # Запрашиваем 128 MiB памяти
+          limits:
+            cpu: "500m"       # Лимит 0.5 CPU
+            memory: "512Mi"   # Лимит 512 MiB памяти
+        livenessProbe:
+          httpGet:
+            path: /healthz  # или правильный путь для вашего приложения
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /readyz   # или правильный путь для вашего приложения
+            port: 5000
