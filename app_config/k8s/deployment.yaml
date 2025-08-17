@@ -21,6 +21,8 @@ spec:
         image: "{{IMAGE_NAME}}"  # Используемый Docker образ
         ports:
         - containerPort: 5000  # Порт, который открывает контейнер
+        stdin: true   # Разрешить интерактивный ввод
+        tty: true     # Выделить TTY
         env:                   # Переменные окружения
         - name: FLASK_ENV      # Установка окружения Flask в production
           value: "production"
