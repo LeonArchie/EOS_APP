@@ -67,3 +67,80 @@ paths:
                   error:
                     type: string
                     example: "Error writing file"
+                    
+  /read/{file_path}:
+    get:
+      tags:
+        - Config
+      summary: Прочитать параметр из конфигурационного файла
+      description: |
+        Читает значение параметра из JSON-файла в директории /configures.
+        Путь к параметру указывается через слэш после имени файла.
+      parameters:
+        - name: file_path
+          in: path
+          required: true
+          description: |
+            Путь в формате "имя_файла/путь_к_параметру".
+            Примеры:
+            - db/replication
+            - db/master_host
+            - app_settings/nested/enabled
+          schema:
+            type: string
+          example: "db/replication"
+      responses:
+        '200':
+          description: Успешное чтение параметра
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file:
+                    type: string
+                    example: "db.json"
+                    description: Имя файла конфигурации
+                  parameter:
+                    type: string
+                    example: "replication"
+                    description: Полный путь к параметру в файле
+                  value:
+                    type: 
+                      - string
+                      - number
+                      - boolean
+                      - object
+                      - array
+                    example: "false"
+                    description: Значение параметра
+        '400':
+          description: Неверный формат запроса
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Неверный формат запроса. Используйте: /read/имя_файла/путь_к_параметру"
+        '404':
+          description: Файл или параметр не найден
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Параметр replication не найден в файле db.json"
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Ошибка формата JSON в файле config.json"
