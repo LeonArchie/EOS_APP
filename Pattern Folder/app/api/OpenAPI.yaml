@@ -1,0 +1,7 @@
+openapi: 3.0.0
+info:
+  title: Config API
+  description: API для создания конфигурационных файлов
+  version: 1.0.0
+
+paths:
