@@ -3,7 +3,7 @@ kind: Ingress                    # Тип ресурса - Ingress (внешни
 metadata:
   name: global-ingress        # Имя Ingress ресурса
   annotations:                   # Аннотации для настройки поведения
-    nginx.ingress.kubernetes.io/rewrite-target: /  # Правила перезаписи URL
+    nginx.ingress.kubernetes.io/rewrite-target: /$2  # Правила перезаписи URL
     # cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Для автоматического TLS
 spec:
   rules:
@@ -11,6 +11,13 @@ spec:
     http:
       paths:
       - path: /test(/|$)(.*)             # Путь для маршрутизации
+        pathType: Prefix         # Тип сопоставления пути
+        backend:
+          service:
+            name: flask-app-service  # Имя сервиса для перенаправления трафика
+            port:
+              number: 5000         # Порт сервиса
+      - path: /config(/|$)(.*)             # Путь для маршрутизации
         pathType: Prefix         # Тип сопоставления пути
         backend:
           service:
