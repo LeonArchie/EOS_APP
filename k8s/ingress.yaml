@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: global-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /  # Упрощенный rewrite
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+spec:
+  rules:
+  - host: test-k8s.school59-ekb.ru
+    http:
+      paths:
+      - path: /test  # Простой путь без regex
+        pathType: Prefix
+        backend:
+          service:
+            name: flask-app-service
+            port: 
+              number: 5000
+
+      - path: /config  # Простой путь без regex
+        pathType: Prefix
+        backend:
+          service:
+            name: app-config-service
+            port:
+              number: 5000
+
+  # tls:
+  # - hosts:
+  #   - test-k8s.school59-ekb.ru
+  #   secretName: flask-app-tls

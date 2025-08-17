@@ -1,18 +1,16 @@
-from flask import Flask, jsonify
+# app.py
+from flask import Flask
+from k8s.healthz import healthz_bp
+from k8s.readyz import readyz_bp
+from maintenance.logging_config import setup_logging
 
 app = Flask(__name__)
+logger = setup_logging()
+logger.info("Приложение запускается")
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({"status": True}), 200
-
-@app.route('/healthz', methods=['GET'])
-def healthz():
-    return jsonify({"status": "healthy"}), 200
-
-@app.route('/readyz', methods=['GET'])
-def readyz():
-    return jsonify({"status": "ready"}), 200
+app.register_blueprint(healthz_bp)
+app.register_blueprint(readyz_bp)
 
 if __name__ == '__main__':
+    logger.info("Сервер запущен на 0.0.0.0:5000")
     app.run(host="0.0.0.0", port=5000)
