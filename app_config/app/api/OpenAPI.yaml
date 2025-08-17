@@ -1,0 +1,69 @@
+openapi: 3.0.0
+info:
+  title: Config API
+  description: API для создания конфигурационных файлов
+  version: 1.0.0
+
+paths:
+  /config-create/{name}:
+    post:
+      tags:
+        - Config
+      summary: Создать новый конфигурационный файл
+      description: |
+        Принимает JSON в теле запроса и сохраняет его в файл {name}.json
+        в директории /configures
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Имя конфигурационного файла (без расширения)
+          schema:
+            type: string
+          example: "app_settings"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              example:
+                key1: "value1"
+                key2: 123
+                nested:
+                  enabled: true
+      responses:
+        '201':
+          description: Конфигурационный файл успешно создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  message:
+                    type: string
+                    example: "Config app_settings.json created"
+        '400':
+          description: Неверный запрос (отсутствует JSON тело)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "No JSON data provided"
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Error writing file"
