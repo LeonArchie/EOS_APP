@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1  # Версия API для Ingress
 kind: Ingress                    # Тип ресурса - Ingress (внешний роутер)
 metadata:
-  name: flask-app-ingress        # Имя Ingress ресурса
+  name: global-ingress        # Имя Ingress ресурса
   annotations:                   # Аннотации для настройки поведения
     nginx.ingress.kubernetes.io/rewrite-target: /  # Правила перезаписи URL
     # cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Для автоматического TLS
@@ -10,7 +10,7 @@ spec:
   - host: test-k8s.school59-ekb.ru      # Домен, по которому будет доступно приложение
     http:
       paths:
-      - path: /                 # Путь для маршрутизации
+      - path: /test(/|$)(.*)             # Путь для маршрутизации
         pathType: Prefix         # Тип сопоставления пути
         backend:
           service:
