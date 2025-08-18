@@ -9,9 +9,6 @@ logger = logging.getLogger(__name__)
 config_bp = Blueprint('config', __name__)
 
 CONFIG_DIR = "configures"
-if not os.path.exists(CONFIG_DIR):
-    os.makedirs(CONFIG_DIR)
-    logger.info("Создана директория для конфигураций: %s", CONFIG_DIR)
 
 @config_bp.route('/config-create/<name>', methods=['POST'])
 def create_config(name):

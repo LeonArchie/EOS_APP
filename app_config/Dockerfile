@@ -2,14 +2,20 @@
 # Этап сборки
 FROM python:3.9-slim as builder
 
-WORKDIR /app
+WORKDIR /
 
-# Устанавливаем зависимости для сборки (если нужны)
+RUN apt-get update && apt-get install -y \
+    iputils-ping \
+    net-tools \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Устанавливаем зависимости для сборки
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc python3-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Создаем и активируем виртуальное окружение
+# Создаем виртуальное окружение
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
@@ -21,14 +27,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Финальный этап
 FROM python:3.9-slim
 
-# Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем виртуальное окружение из builder
+# Копируем виртуальное окружение
 COPY --from=builder /opt/venv /opt/venv
 
-# Копируем только нужные файлы приложения
-COPY . .
+# Копируем только нужные файлы
+COPY ./app .
 
 # Устанавливаем переменные окружения
 ENV PATH="/opt/venv/bin:$PATH" \
@@ -36,20 +41,16 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     FLASK_ENV=production
 
-# Создаем непривилегированного пользователя
+# Создаем пользователя
 RUN groupadd -r appuser && useradd -r -g appuser appuser && \
-    chown -R appuser:appuser /app && \
-    mkdir -p /app/configures && chown appuser:appuser /app/configures
+    chown -R appuser:appuser /app
 
-# Переключаемся на непривилегированного пользователя
 USER appuser
 
-# Открываем порт
 EXPOSE 5000
 
-# Health check (проверка здоровья)
 HEALTHCHECK --interval=30s --timeout=3s \
     CMD curl -f http://localhost:5000/healthz || exit 1
 
-# Запускаем приложение
-CMD ["python", "app/app.py"]
+# Исправленная команда запуска
+CMD ["python", "/app/app.py"]
