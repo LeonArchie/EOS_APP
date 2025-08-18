@@ -2,7 +2,7 @@
 # Этап сборки
 FROM python:3.9-slim as builder
 
-WORKDIR /app
+WORKDIR /
 
 RUN apt-get update && apt-get install -y \
     iputils-ping \
@@ -33,7 +33,7 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 
 # Копируем только нужные файлы
-COPY ./app ./app
+COPY ./app .
 
 # Устанавливаем переменные окружения
 ENV PATH="/opt/venv/bin:$PATH" \
