@@ -1,24 +1,26 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: app-balancer
+  name: ingress
+  namespace: test-deploy
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - http:
+  - host: test.k8s.school59-ekb.ru
+    http:
       paths:
       - path: /app-config
         pathType: Prefix
         backend:
           service:
-            name: app-config-service
+            name: app-config
             port:
               number: 5000
-      - path: /flask-app
+      - path: /flask-app-pr1
         pathType: Prefix
         backend:
           service:
-            name: flask-app-pr1-service
+            name: flask-app-pr1
             port:
               number: 5000
