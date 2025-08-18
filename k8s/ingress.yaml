@@ -15,7 +15,6 @@ spec:
         backend:
           service:
             name: app-config
-            namespace: test-deploy
             port:
               number: 5000
       - path: /flask-app-pr1
@@ -23,6 +22,5 @@ spec:
         backend:
           service:
             name: flask-app-pr1
-            namespace: test-deploy
             port:
               number: 5000
