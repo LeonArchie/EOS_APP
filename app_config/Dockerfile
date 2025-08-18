@@ -44,7 +44,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 # Создаем непривилегированного пользователя
 RUN groupadd -r appuser && useradd -r -g appuser appuser && \
-    chown -R appuser:appuser /app &&
+    chown -R appuser:appuser /app
 
 # Переключаемся на непривилегированного пользователя
 USER appuser
