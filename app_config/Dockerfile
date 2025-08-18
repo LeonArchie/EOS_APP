@@ -53,4 +53,4 @@ HEALTHCHECK --interval=30s --timeout=3s \
     CMD curl -f http://localhost:5000/healthz || exit 1
 
 # Исправленная команда запуска
-CMD ["python", "./app/app.py"]
+CMD ["python", "/app/app.py"]
