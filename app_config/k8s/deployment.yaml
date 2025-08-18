@@ -13,6 +13,7 @@ spec:
     metadata:
       labels:
         app: app-config    # Метка, которая будет у создаваемых pod'ов
+        version: "0.2"
     spec:
       imagePullSecrets:
       - name: ghcr-secret

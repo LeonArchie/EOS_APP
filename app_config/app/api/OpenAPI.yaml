@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Config API
-  description: API для создания конфигурационных файлов
+  description: API Config
   version: 1.0.0
 
 paths:
@@ -144,3 +144,123 @@ paths:
                   error:
                     type: string
                     example: "Ошибка формата JSON в файле config.json"
+
+  /update:
+    post:
+      tags:
+        - Configuration
+      summary: Обновление параметра в конфигурационном файле
+      description: |
+        Обновляет значение параметра в JSON-файле конфигурации.
+        Перед обновлением проверяет значение по regex-шаблону из валидатора (если существует).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  example: "db/replication"
+                  description: Путь к параметру в формате `имя_файла/параметр1/параметр2`
+                value:
+                  type: string
+                  example: "false"
+                  description: Новое значение параметра
+              required:
+                - path
+                - value
+      responses:
+        '200':
+          description: Параметр успешно обновлен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  message:
+                    type: string
+                    example: "Параметр db/replication обновлен"
+                  file:
+                    type: string
+                    example: "db.json"
+                  parameter:
+                    type: string
+                    example: "db/replication"
+                  value:
+                    type: string
+                    example: "false"
+                  validation:
+                    type: string
+                    enum: ["performed", "skipped"]
+                    example: "performed"
+        '400':
+          description: Неверный запрос
+        '404':
+          description: Файл конфигурации или параметр не найден
+        '500':
+          description: Внутренняя ошибка сервера
+
+  /create-validate/{name}:
+    post:
+      tags:
+        - Validators
+      summary: Создание файла-валидатора
+      description: Создает JSON-файл с regex-шаблонами для валидации параметров
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "db"
+          description: Имя валидатора (без расширения .json)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+                description: Regex-шаблон для валидации параметра
+              example:
+                replication: "^(true|false)$"
+                master_host: "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^$"
+      responses:
+        '201':
+          description: Валидатор успешно создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  message:
+                    type: string
+                    example: "Валидатор db.json создан"
+                  path:
+                    type: string
+                    example: "validators/db.json"
+        '400':
+          description: Неверный JSON или некорректные regex-шаблоны
+        '500':
+          description: Внутренняя ошибка сервера
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Описание ошибки"
+        details:
+          type: string
+          example: "Дополнительная информация об ошибке"
