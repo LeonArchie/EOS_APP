@@ -14,13 +14,13 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: app-config
+            name: app-config-service
             port:
               number: 5000
       - path: /flask-app-pr1
         pathType: Prefix
         backend:
           service:
-            name: flask-app-pr1
+            name: flask-app-pr1--service
             port:
               number: 5000
