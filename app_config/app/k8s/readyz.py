@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only WITH LICENSE-ADDITIONAL
+# Copyright (C) 2025 Петунин Лев Михайлович
+
 # Импорт необходимых компонентов Flask
 from flask import Blueprint, jsonify  # Blueprint для создания группы маршрутов, jsonify для JSON-ответов
 import logging  # Стандартный модуль логирования Python

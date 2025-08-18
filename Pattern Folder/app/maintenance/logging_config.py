@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only WITH LICENSE-ADDITIONAL
+# Copyright (C) 2025 Петунин Лев Михайлович
+
 # Импорт необходимых модулей
 import logging  # Стандартный модуль логирования Python
 import json     # Для форматирования логов в JSON

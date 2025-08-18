@@ -1,4 +1,6 @@
-# app.py
+# SPDX-License-Identifier: AGPL-3.0-only WITH LICENSE-ADDITIONAL
+# Copyright (C) 2025 Петунин Лев Михайлович
+
 from flask import Flask
 from k8s.healthz import healthz_bp
 from k8s.readyz import readyz_bp
