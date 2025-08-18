@@ -23,3 +23,10 @@ spec:
             name: flask-app-pr1-service
             port:
               number: 5000
+      - path: /db(/|$)(.*)   # Путь /db ТОЛЬКО НА ВРЕМЯ РАЗРАБОТКИ КОННЕКТОРА
+        pathType: Prefix
+        backend:
+          service:
+            name: database-connector-service
+            port:
+              number: 5000
