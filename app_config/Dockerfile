@@ -4,6 +4,12 @@ FROM python:3.9-slim as builder
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y \
+    iputils-ping \
+    net-tools \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Устанавливаем зависимости для сборки (если нужны)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc python3-dev && \
