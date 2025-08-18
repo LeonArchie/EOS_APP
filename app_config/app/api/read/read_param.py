@@ -11,7 +11,7 @@ read_bp = Blueprint('read', __name__)
 
 CONFIG_DIR = "configures"
 
-@read_bp.route('/config/read/<path:file_path>', methods=['GET'])
+@read_bp.route('/read/<path:file_path>', methods=['GET'])
 def read_parameter(file_path):
     try:
         logger.info(f"Получен запрос на чтение параметра: {file_path}")
