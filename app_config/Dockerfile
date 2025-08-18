@@ -34,8 +34,6 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Копируем только нужные файлы
 COPY ./app ./app
-COPY ./configures ./configures
-COPY ./migrations ./migrations
 
 # Устанавливаем переменные окружения
 ENV PATH="/opt/venv/bin:$PATH" \
