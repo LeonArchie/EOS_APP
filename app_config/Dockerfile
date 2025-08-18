@@ -33,8 +33,8 @@ WORKDIR /app
 # Копируем виртуальное окружение из builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Копируем только нужные файлы приложения
-COPY . .
+# Копируем только содержимое папки app
+COPY ./app ./app
 
 # Устанавливаем переменные окружения
 ENV PATH="/opt/venv/bin:$PATH" \
@@ -57,4 +57,4 @@ HEALTHCHECK --interval=30s --timeout=3s \
     CMD curl -f http://localhost:5000/healthz || exit 1
 
 # Запускаем приложение
-CMD ["python", "app/app.py"]
+CMD ["python", "app.py"]
