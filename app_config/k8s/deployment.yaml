@@ -29,11 +29,11 @@ spec:
           value: "production"
         resources:             # (Опционально) Лимиты ресурсов
           requests:
-            cpu: "100m"       # Запрашиваем 0.1 CPU
-            memory: "128Mi"   # Запрашиваем 128 MiB памяти
+            cpu: "10m"       # Запрашиваем 0.1 CPU
+            memory: "32Mi"   # Запрашиваем 128 MiB памяти
           limits:
-            cpu: "500m"       # Лимит 0.5 CPU
-            memory: "512Mi"   # Лимит 512 MiB памяти
+            cpu: "50m"       # Лимит 0.5 CPU
+            memory: "64Mi"   # Лимит 512 MiB памяти
         livenessProbe:
           httpGet:
             path: /healthz  # или правильный путь для вашего приложения

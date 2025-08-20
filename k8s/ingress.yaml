@@ -9,6 +9,13 @@ spec:
   - host: app-config.school59-ekb.ru  # Единый домен
     http:
       paths:
+      - path: /  # Путь /nginx
+        pathType: Prefix
+        backend:
+          service:
+            name: web-nginx-service
+            port:
+              number: 9443
       - path: /config(/|$)(.*)  # Путь /config
         pathType: Prefix
         backend:
